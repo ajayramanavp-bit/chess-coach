@@ -692,14 +692,314 @@ function sendChat(){
   },1200);
 }
 
-function analyseGames(){
-  const u=document.getElementById('chess-uname');if(!u||!u.value.trim()){alert('Enter your Chess.com username!');return}
-  const al=document.getElementById('a-loading'),ar=document.getElementById('a-results');
-  if(al)al.style.display='block';if(ar)ar.style.display='none';
-  setTimeout(()=>{
-    if(al)al.style.display='none';
-    if(ar){ar.style.display='block';ar.innerHTML='<div style="background:var(--bg2);border:1px solid var(--border);border-radius:8px;padding:28px"><div style="font-family:Playfair Display,serif;font-size:20px;font-weight:700;color:var(--gold);margin-bottom:10px">Analysis for: '+u.value.trim()+'</div><p style="color:var(--text2);font-size:14px;line-height:1.8">Railway backend connects in Step 4. Will show: last 100 games, worst openings, blunder detection, and custom puzzles from your mistakes.</p></div>'}
-  },1800);
+async function analyseGames() {
+  const username = document.getElementById('usernameInput').value.trim();
+  if (!username) {
+    alert('Please enter a Chess.com username first.');
+    return;
+  }
+
+  const reportDiv = document.getElementById('analysisReport');
+  reportDiv.innerHTML = '<p style="color:#aaa;">⏳ Fetching games from Chess.com… this may take 10–20 seconds.</p>';
+
+  let games = [];
+
+  // ── 1. Fetch games from YOUR Railway backend ──────────────────────────
+  try {
+    const res = await fetch(
+      `https://chess-coach-production-86a2.up.railway.app/api/games/${encodeURIComponent(username)}`
+    );
+    if (!res.ok) {
+      throw new Error(`Server returned ${res.status}: ${res.statusText}`);
+    }
+    const data = await res.json();
+    // Railway endpoint returns { games: [...] } or an array directly
+    games = Array.isArray(data) ? data : (data.games || []);
+  } catch (err) {
+    reportDiv.innerHTML = `<p style="color:red;">❌ Failed to fetch games: ${err.message}</p>`;
+    console.error(err);
+    return;
+  }
+
+  if (!games.length) {
+    reportDiv.innerHTML = '<p style="color:orange;">⚠️ No games found for this username.</p>';
+    return;
+  }
+
+  reportDiv.innerHTML = `<p style="color:#aaa;">🔍 Analysing ${games.length} games…</p>`;
+
+  // ── 2. Per-game analysis using chess.js ───────────────────────────────
+  const openingStats  = {};   // opening ECO/name → { wins, losses, draws, total }
+  const blunderReport = [];   // { gameIndex, opponent, color, blunders, phase }
+  let totalBlunders   = 0;
+  let totalMistakes   = 0;
+  const phaseErrors   = { opening: 0, middlegame: 0, endgame: 0 };
+
+  for (let gi = 0; gi < games.length; gi++) {
+    const game = games[gi];
+    const pgn  = game.pgn;
+    if (!pgn) continue;
+
+    // Determine player color
+    const playerColor =
+      (game.white?.username || '').toLowerCase() === username.toLowerCase()
+        ? 'white'
+        : 'black';
+    const opponent =
+      playerColor === 'white'
+        ? (game.black?.username  || 'Unknown')
+        : (game.white?.username || 'Unknown');
+
+    // Result for this player
+    let result = 'draw';
+    if (game.white?.result === 'win' && playerColor === 'white') result = 'win';
+    if (game.black?.result === 'win' && playerColor === 'black') result = 'win';
+    if (game.white?.result === 'checkmated' && playerColor === 'white') result = 'loss';
+    if (game.black?.result === 'checkmated' && playerColor === 'black') result = 'loss';
+    if (game.white?.result === 'resigned'   && playerColor === 'white') result = 'loss';
+    if (game.black?.result === 'resigned'   && playerColor === 'black') result = 'loss';
+    if (game.white?.result === 'timeout'    && playerColor === 'white') result = 'loss';
+    if (game.black?.result === 'timeout'    && playerColor === 'black') result = 'loss';
+
+    // ── Opening tracking ──────────────────────────────────────────────
+    const ecoMatch   = pgn.match(/\[ECO\s+"([^"]+)"\]/);
+    const openMatch  = pgn.match(/\[Opening\s+"([^"]+)"\]/);
+    const openingKey = openMatch
+      ? openMatch[1]
+      : (ecoMatch ? ecoMatch[1] : 'Unknown Opening');
+
+    if (!openingStats[openingKey]) {
+      openingStats[openingKey] = { wins: 0, losses: 0, draws: 0, total: 0 };
+    }
+    openingStats[openingKey].total++;
+    if      (result === 'win')  openingStats[openingKey].wins++;
+    else if (result === 'loss') openingStats[openingKey].losses++;
+    else                         openingStats[openingKey].draws++;
+
+    // ── Move-level blunder detection via chess.js ─────────────────────
+    let gameBlunders  = 0;
+    let gameMistakes  = 0;
+    const gamePhaseErr = { opening: 0, middlegame: 0, endgame: 0 };
+
+    try {
+      const chess    = new Chess();
+      const pgnClean = pgn.replace(/\{[^}]*\}/g, '').replace(/\$\d+/g, '');
+
+      // Extract only the moves line (after headers)
+      const movesSection = pgnClean.replace(/\[[^\]]*\]\s*/g, '').trim();
+
+      chess.loadPgn(movesSection.length > 0 ? pgnClean : pgn);
+      const history  = chess.history({ verbose: true });
+      const chess2   = new Chess();   // replay from start
+
+      for (let mi = 0; mi < history.length; mi++) {
+        const move       = history[mi];
+        const moveNumber = Math.floor(mi / 2) + 1;
+
+        // Determine game phase
+        let phase = 'opening';
+        if (moveNumber > 10 && moveNumber <= 30) phase = 'middlegame';
+        if (moveNumber > 30)                     phase  = 'endgame';
+
+        chess2.move(move.san);
+
+        // NAG-based blunder detection from PGN annotations
+        // Chess.com PGNs include $4 (blunder) $2 (mistake) $6 (inaccuracy)
+        const nagPattern = new RegExp(
+          `${moveNumber}\\s*\\.{1,3}\\s*${escapeRegex(move.san)}\\s*(\\{[^}]*\\})?\\s*(\\$\\d+)?`
+        );
+        const nagMatch = pgn.match(nagPattern);
+        const nag      = nagMatch ? (nagMatch[2] || '') : '';
+
+        // Only count errors for the player being analysed
+        const isPlayerMove =
+          (playerColor === 'white' && mi % 2 === 0) ||
+          (playerColor === 'black' && mi % 2 === 1);
+
+        if (isPlayerMove) {
+          if (nag === '$4') {   // Blunder ??
+            gameBlunders++;
+            gamePhaseErr[phase]++;
+          } else if (nag === '$2') {   // Mistake ?
+            gameMistakes++;
+            gamePhaseErr[phase]++;
+          }
+        }
+      }
+    } catch (parseErr) {
+      // Skip games that chess.js can't parse
+      console.warn(`Could not parse game ${gi}:`, parseErr.message);
+    }
+
+    totalBlunders += gameBlunders;
+    totalMistakes += gameMistakes;
+    phaseErrors.opening     += gamePhaseErr.opening;
+    phaseErrors.middlegame  += gamePhaseErr.middlegame;
+    phaseErrors.endgame     += gamePhaseErr.endgame;
+
+    if (gameBlunders > 0) {
+      blunderReport.push({
+        gameIndex : gi + 1,
+        opponent,
+        color     : playerColor,
+        blunders  : gameBlunders,
+        mistakes  : gameMistakes,
+        result,
+        opening   : games[gi].pgn?.match(/\[Opening\s+"([^"]+)"\]/)?.[1] || 'Unknown'
+      });
+    }
+  }
+
+  // ── 3. Build the weakness report ─────────────────────────────────────
+  const worstPhase = Object.entries(phaseErrors).sort((a, b) => b[1] - a[1])[0][0];
+
+  // Worst openings = lowest win-rate with ≥2 games
+  const worstOpenings = Object.entries(openingStats)
+    .filter(([, s]) => s.total >= 2)
+    .map(([name, s]) => ({
+      name,
+      winRate  : s.wins / s.total,
+      lossRate : s.losses / s.total,
+      total    : s.total,
+      wins     : s.wins,
+      losses   : s.losses,
+      draws    : s.draws
+    }))
+    .sort((a, b) => a.winRate - b.winRate)
+    .slice(0, 5);
+
+  // Top blunder games
+  const topBlunderGames = [...blunderReport]
+    .sort((a, b) => b.blunders - a.blunders)
+    .slice(0, 5);
+
+  // ── 4. Render the report ──────────────────────────────────────────────
+  const phaseEmoji = { opening: '♟️', middlegame: '⚔️', endgame: '🏁' };
+
+  let html = `
+    <div style="font-family:sans-serif; color:#e0e0e0; max-width:700px;">
+      <h2 style="color:#f0c040;">📊 Weakness Report for <span style="color:#4fc3f7;">${username}</span></h2>
+      <p style="color:#aaa;">Analysed <strong style="color:#fff;">${games.length}</strong> recent games</p>
+
+      <hr style="border-color:#444; margin:12px 0;">
+
+      <h3 style="color:#ef9a9a;">🔴 Overall Errors</h3>
+      <table style="width:100%; border-collapse:collapse; margin-bottom:12px;">
+        <tr style="background:#1e1e2e;">
+          <td style="padding:8px 12px; border:1px solid #444;">Total Blunders (??)</td>
+          <td style="padding:8px 12px; border:1px solid #444; color:#ef5350; font-weight:bold;">${totalBlunders}</td>
+        </tr>
+        <tr>
+          <td style="padding:8px 12px; border:1px solid #444;">Total Mistakes (?)</td>
+          <td style="padding:8px 12px; border:1px solid #444; color:#ffa726; font-weight:bold;">${totalMistakes}</td>
+        </tr>
+        <tr style="background:#1e1e2e;">
+          <td style="padding:8px 12px; border:1px solid #444;">Avg Blunders/Game</td>
+          <td style="padding:8px 12px; border:1px solid #444; color:#fff;">${(totalBlunders / games.length).toFixed(2)}</td>
+        </tr>
+      </table>
+
+      <h3 style="color:#ffe082;">⚠️ Worst Phase: ${phaseEmoji[worstPhase]} ${worstPhase.charAt(0).toUpperCase() + worstPhase.slice(1)}</h3>
+      <div style="display:flex; gap:12px; margin-bottom:16px;">
+        ${Object.entries(phaseErrors).map(([phase, count]) => `
+          <div style="flex:1; background:${phase === worstPhase ? '#3e2723' : '#1e1e2e'}; 
+               border:1px solid ${phase === worstPhase ? '#ef5350' : '#444'}; 
+               border-radius:8px; padding:10px; text-align:center;">
+            <div style="font-size:1.4em;">${phaseEmoji[phase]}</div>
+            <div style="font-weight:bold; color:#fff;">${phase.charAt(0).toUpperCase() + phase.slice(1)}</div>
+            <div style="color:#ef5350; font-size:1.3em; font-weight:bold;">${count}</div>
+            <div style="color:#aaa; font-size:0.8em;">errors</div>
+          </div>
+        `).join('')}
+      </div>
+  `;
+
+  if (worstOpenings.length > 0) {
+    html += `
+      <h3 style="color:#ce93d8;">♟️ Worst Openings (Win Rate)</h3>
+      <table style="width:100%; border-collapse:collapse; margin-bottom:16px; font-size:0.9em;">
+        <thead>
+          <tr style="background:#2d2d2d; color:#aaa;">
+            <th style="padding:8px; border:1px solid #444; text-align:left;">Opening</th>
+            <th style="padding:8px; border:1px solid #444;">Games</th>
+            <th style="padding:8px; border:1px solid #444;">W</th>
+            <th style="padding:8px; border:1px solid #444;">L</th>
+            <th style="padding:8px; border:1px solid #444;">D</th>
+            <th style="padding:8px; border:1px solid #444;">Win%</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${worstOpenings.map(o => `
+            <tr style="background:#1a1a2e;">
+              <td style="padding:8px; border:1px solid #444;">${o.name}</td>
+              <td style="padding:8px; border:1px solid #444; text-align:center;">${o.total}</td>
+              <td style="padding:8px; border:1px solid #444; text-align:center; color:#66bb6a;">${o.wins}</td>
+              <td style="padding:8px; border:1px solid #444; text-align:center; color:#ef5350;">${o.losses}</td>
+              <td style="padding:8px; border:1px solid #444; text-align:center; color:#aaa;">${o.draws}</td>
+              <td style="padding:8px; border:1px solid #444; text-align:center; 
+                  color:${o.winRate < 0.3 ? '#ef5350' : o.winRate < 0.5 ? '#ffa726' : '#66bb6a'}; font-weight:bold;">
+                ${(o.winRate * 100).toFixed(0)}%
+              </td>
+            </tr>
+          `).join('')}
+        </tbody>
+      </table>
+    `;
+  }
+
+  if (topBlunderGames.length > 0) {
+    html += `
+      <h3 style="color:#80cbc4;">💥 Games With Most Blunders</h3>
+      <table style="width:100%; border-collapse:collapse; margin-bottom:16px; font-size:0.9em;">
+        <thead>
+          <tr style="background:#2d2d2d; color:#aaa;">
+            <th style="padding:8px; border:1px solid #444;">#</th>
+            <th style="padding:8px; border:1px solid #444; text-align:left;">Opponent</th>
+            <th style="padding:8px; border:1px solid #444; text-align:left;">Opening</th>
+            <th style="padding:8px; border:1px solid #444;">Color</th>
+            <th style="padding:8px; border:1px solid #444;">Result</th>
+            <th style="padding:8px; border:1px solid #444;">?? Blunders</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${topBlunderGames.map(g => `
+            <tr style="background:#1a1a2e;">
+              <td style="padding:8px; border:1px solid #444; text-align:center;">${g.gameIndex}</td>
+              <td style="padding:8px; border:1px solid #444;">${g.opponent}</td>
+              <td style="padding:8px; border:1px solid #444; color:#aaa; font-size:0.85em;">${g.opening}</td>
+              <td style="padding:8px; border:1px solid #444; text-align:center;">${g.color === 'white' ? '⬜' : '⬛'}</td>
+              <td style="padding:8px; border:1px solid #444; text-align:center;
+                  color:${g.result === 'win' ? '#66bb6a' : g.result === 'loss' ? '#ef5350' : '#aaa'};">
+                ${g.result.toUpperCase()}
+              </td>
+              <td style="padding:8px; border:1px solid #444; text-align:center; color:#ef5350; font-weight:bold;">${g.blunders}</td>
+            </tr>
+          `).join('')}
+        </tbody>
+      </table>
+    `;
+  }
+
+  // Coaching tip
+  const tips = {
+    opening    : '💡 <strong>Tip:</strong> You lose the most material in the opening. Focus on basic principles: control the center with pawns (e4/d4), develop knights before bishops, and castle early.',
+    middlegame : '💡 <strong>Tip:</strong> Your middlegame needs work. Before every move, ask: "Is my piece hanging? Is my opponent threatening something?" Use the Chess.com Lessons on tactics.',
+    endgame    : '💡 <strong>Tip:</strong> You struggle in endgames. Practice King + Pawn vs King endgames. Activate your king — it\'s a strong piece when there are few pieces left.'
+  };
+
+  html += `
+      <div style="background:#1a2744; border-left:4px solid #4fc3f7; padding:12px 16px; border-radius:4px; margin-top:8px;">
+        ${tips[worstPhase]}
+      </div>
+    </div>
+  `;
+
+  reportDiv.innerHTML = html;
+}
+
+// Helper used inside analyseGames
+function escapeRegex(str) {
+  return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
 window.addEventListener('load',()=>buildPickers());
