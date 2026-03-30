@@ -1,0 +1,708 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Chess AI Coach</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@700;900&family=DM+Sans:wght@300;400;500;600&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/chess.js/0.10.3/chess.min.js"></script>
+<style>
+/* ─── RESET & BASE ─────────────────────────────────────── */
+*{margin:0;padding:0;box-sizing:border-box}
+:root{
+  --bg:#0c0c10;--bg2:#13131a;--bg3:#1a1a24;--bg4:#21212e;
+  --border:#2e2e3e;--border2:#3a3a50;
+  --gold:#c9a84c;--gold2:#e8c97e;--gold3:#f5dfa0;
+  --text:#ededf0;--text2:#9999aa;--text3:#55556a;
+  --green:#4caf7d;--red:#e05c5c;--blue:#5c8fe0;
+  --sq-light:#f0d9b5;--sq-dark:#b58863;
+}
+html,body{height:100%;overflow:hidden}
+body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);cursor:none;display:flex;flex-direction:column}
+
+#cur{position:fixed;width:8px;height:8px;background:var(--gold);border-radius:50%;pointer-events:none;z-index:9999;transform:translate(-50%,-50%);transition:width .15s,height .15s}
+#cur-ring{position:fixed;width:32px;height:32px;border:1px solid rgba(201,168,76,.35);border-radius:50%;pointer-events:none;z-index:9998;transform:translate(-50%,-50%)}
+
+#app-nav{flex-shrink:0;height:52px;background:var(--bg2);border-bottom:1px solid var(--border);display:flex;align-items:center;padding:0 20px;gap:4px;position:relative;z-index:100}
+.nav-logo{font-family:'Playfair Display',serif;font-size:17px;font-weight:700;color:var(--gold);letter-spacing:.5px;margin-right:12px;white-space:nowrap}
+.nav-logo span{color:var(--text3);font-size:13px;font-weight:400;font-family:'DM Sans',sans-serif;margin-left:6px}
+.nb{padding:5px 14px;border-radius:5px;font-size:13px;font-weight:500;cursor:pointer;border:none;background:transparent;color:var(--text2);transition:all .2s;white-space:nowrap}
+.nb:hover{color:var(--text);background:var(--bg3)}
+.nb.on{color:var(--gold);background:rgba(201,168,76,.1);border:1px solid rgba(201,168,76,.2)}
+.nav-spacer{flex:1}
+.nav-sign{padding:6px 16px;border-radius:5px;font-size:13px;font-weight:600;cursor:pointer;border:1px solid var(--border2);background:transparent;color:var(--text);transition:all .2s}
+.nav-sign:hover{border-color:var(--gold);color:var(--gold)}
+
+.page{display:none;flex:1;overflow:hidden}
+.page.on{display:flex}
+
+#page-home{flex-direction:column;overflow-y:auto;background:var(--bg)}
+.home-hero{padding:80px 40px 60px;text-align:center;position:relative;overflow:hidden;border-bottom:1px solid var(--border)}
+.home-hero::before{content:'';position:absolute;inset:0;background:radial-gradient(ellipse 60% 50% at 50% 0%,rgba(201,168,76,.07) 0%,transparent 70%);pointer-events:none}
+.home-eyebrow{display:inline-block;font-size:10px;letter-spacing:3px;text-transform:uppercase;color:var(--gold);font-weight:600;margin-bottom:20px;padding:4px 12px;border:1px solid rgba(201,168,76,.25);border-radius:3px;background:rgba(201,168,76,.05)}
+.home-h1{font-family:'Playfair Display',serif;font-size:56px;font-weight:900;letter-spacing:-1px;line-height:1.1;margin-bottom:16px;color:var(--text)}
+.home-h1 em{font-style:normal;background:linear-gradient(135deg,var(--gold),var(--gold3));-webkit-background-clip:text;-webkit-text-fill-color:transparent}
+.home-sub{font-size:16px;color:var(--text2);max-width:500px;margin:0 auto 36px;line-height:1.8;font-weight:300}
+.home-btns{display:flex;gap:12px;justify-content:center;flex-wrap:wrap}
+.hbtn-gold{padding:12px 28px;border-radius:6px;font-size:14px;font-weight:600;cursor:pointer;border:none;background:linear-gradient(135deg,var(--gold),#b8902a);color:#0c0c10;transition:all .25s}
+.hbtn-gold:hover{transform:translateY(-2px);box-shadow:0 8px 28px rgba(201,168,76,.3)}
+.hbtn-ghost{padding:12px 28px;border-radius:6px;font-size:14px;font-weight:500;cursor:pointer;border:1px solid var(--border2);background:transparent;color:var(--text);transition:all .25s}
+.hbtn-ghost:hover{border-color:var(--gold);color:var(--gold)}
+.home-features{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:1px;background:var(--border);border-top:1px solid var(--border);border-bottom:1px solid var(--border)}
+.feat{background:var(--bg);padding:32px 28px;transition:background .2s}
+.feat:hover{background:var(--bg2)}
+.feat-icon{font-size:24px;margin-bottom:14px}
+.feat-title{font-size:15px;font-weight:600;margin-bottom:6px;color:var(--text)}
+.feat-desc{font-size:13px;color:var(--text2);line-height:1.7}
+.home-pricing{max-width:420px;margin:60px auto 80px;background:var(--bg2);border:1px solid var(--border);border-radius:12px;padding:40px;text-align:center}
+.price-label{font-size:11px;letter-spacing:2px;text-transform:uppercase;color:var(--text3);font-weight:600;margin-bottom:16px}
+.price-amount{font-family:'Playfair Display',serif;font-size:56px;font-weight:900;background:linear-gradient(135deg,var(--gold),var(--gold3));-webkit-background-clip:text;-webkit-text-fill-color:transparent;line-height:1;margin-bottom:4px}
+.price-period{font-size:14px;color:var(--text2)}
+.price-divider{height:1px;background:var(--border);margin:24px 0}
+.price-feat{display:flex;align-items:center;gap:10px;font-size:13px;color:var(--text2);padding:7px 0;text-align:left}
+.price-feat::before{content:'✓';color:var(--gold);font-weight:700;font-size:14px;flex-shrink:0}
+.price-cta{width:100%;margin-top:24px;padding:13px;border-radius:6px;font-size:14px;font-weight:600;cursor:pointer;border:none;background:linear-gradient(135deg,var(--gold),#b8902a);color:#0c0c10;transition:all .25s}
+.price-cta:hover{transform:translateY(-1px);box-shadow:0 8px 24px rgba(201,168,76,.3)}
+.price-note{font-size:11px;color:var(--text3);margin-top:14px}
+
+#page-play{flex-direction:row;overflow:hidden}
+.eval-rail{width:14px;flex-shrink:0;background:var(--bg3);border-right:1px solid var(--border);position:relative;overflow:hidden}
+.eval-black-fill{position:absolute;top:0;left:0;right:0;background:#1a0a00;transition:height .7s cubic-bezier(.4,0,.2,1)}
+.eval-white-fill{position:absolute;bottom:0;left:0;right:0;background:#f0f0f0;transition:height .7s cubic-bezier(.4,0,.2,1)}
+.eval-midline{position:absolute;top:50%;left:0;right:0;height:1px;background:rgba(201,168,76,.4)}
+.board-area{flex:0 0 auto;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:16px;background:var(--bg);border-right:1px solid var(--border);gap:10px}
+.board-player{display:flex;align-items:center;gap:10px;width:100%;max-width:480px;padding:8px 10px;background:var(--bg2);border:1px solid var(--border);border-radius:6px}
+.player-avatar{width:28px;height:28px;border-radius:50%;background:var(--bg4);border:1px solid var(--border2);display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:700;color:var(--gold);flex-shrink:0}
+.player-name{font-size:13px;font-weight:600;color:var(--text);flex:1}
+.player-time{font-size:13px;font-weight:600;color:var(--text2);font-variant-numeric:tabular-nums}
+.player-active .player-time{color:var(--gold)}
+
+#chess-board{display:grid;grid-template-columns:repeat(8,60px);grid-template-rows:repeat(8,60px);border:2px solid var(--border2);border-radius:3px;overflow:hidden;box-shadow:0 0 0 1px rgba(255,255,255,.04),0 24px 64px rgba(0,0,0,.8);position:relative}
+.sq{width:60px;height:60px;display:flex;align-items:center;justify-content:center;position:relative;cursor:pointer}
+.sq.light{background:var(--sq-light)}
+.sq.dark{background:var(--sq-dark)}
+.sq:hover{filter:brightness(1.12)}
+.sq.sel{outline:3px solid rgba(255,220,50,.9);outline-offset:-3px}
+.sq.legal::after{content:'';position:absolute;width:28%;height:28%;background:rgba(0,0,0,.22);border-radius:50%;pointer-events:none}
+.sq.legal-cap::after{content:'';position:absolute;inset:0;border:5px solid rgba(0,0,0,.22);background:transparent;pointer-events:none}
+.sq.lm-from{background:rgba(255,215,0,.35)!important}
+.sq.lm-to{background:rgba(255,215,0,.55)!important}
+.sq.in-chk{background:rgba(220,60,60,.65)!important}
+.sq.best-sq{animation:bestPulse 1.4s ease-in-out infinite}
+@keyframes bestPulse{0%,100%{background:rgba(76,175,125,.3)!important}50%{background:rgba(76,175,125,.55)!important}}
+.coord-r{position:absolute;top:2px;left:3px;font-size:9px;font-weight:700;opacity:.65;pointer-events:none;line-height:1}
+.coord-f{position:absolute;bottom:2px;right:3px;font-size:9px;font-weight:700;opacity:.65;pointer-events:none;line-height:1}
+.sq.light .coord-r,.sq.light .coord-f{color:var(--sq-dark)}
+.sq.dark .coord-r,.sq.dark .coord-f{color:var(--sq-light)}
+.pc{font-size:40px;line-height:1;pointer-events:none;user-select:none;will-change:transform}
+#drag-ghost{position:fixed;pointer-events:none;z-index:9999;font-size:52px;transform:translate(-50%,-50%);display:none;filter:drop-shadow(0 6px 20px rgba(0,0,0,.95))}
+
+.right-panel{flex:1;min-width:0;display:flex;flex-direction:column;overflow:hidden;background:var(--bg)}
+.panel-tabs{display:flex;border-bottom:1px solid var(--border);background:var(--bg2);flex-shrink:0}
+.ptab{padding:10px 18px;font-size:12px;font-weight:600;cursor:pointer;border:none;background:transparent;color:var(--text3);letter-spacing:.5px;text-transform:uppercase;border-bottom:2px solid transparent;margin-bottom:-1px;transition:all .2s}
+.ptab:hover{color:var(--text2)}
+.ptab.on{color:var(--gold);border-bottom-color:var(--gold)}
+.panel-body{flex:1;overflow-y:auto;padding:14px;display:flex;flex-direction:column;gap:10px}
+.pcard{background:var(--bg2);border:1px solid var(--border);border-radius:8px;padding:12px 14px;transition:border-color .2s}
+.pcard:hover{border-color:var(--border2)}
+.pcard-title{font-size:9px;letter-spacing:2px;text-transform:uppercase;color:var(--text3);font-weight:700;margin-bottom:10px}
+.status-main{font-size:14px;font-weight:600;color:var(--text)}
+.status-sub{font-size:12px;color:var(--text2);margin-top:3px}
+.eval-badge{display:inline-block;padding:2px 8px;border-radius:4px;font-size:12px;font-weight:700;margin-left:8px;font-variant-numeric:tabular-nums}
+.eb-pos{background:rgba(76,175,125,.15);color:var(--green)}
+.eb-neg{background:rgba(224,92,92,.15);color:var(--red)}
+.eb-eq{background:rgba(201,168,76,.1);color:var(--gold)}
+.ctrl-row{display:flex;gap:6px;flex-wrap:wrap}
+.cb{flex:1;min-width:64px;padding:7px 8px;border-radius:5px;font-size:11px;font-weight:600;cursor:pointer;border:1px solid var(--border);background:var(--bg3);color:var(--text2);transition:all .2s;letter-spacing:.3px;text-align:center}
+.cb:hover{border-color:var(--gold);color:var(--gold);background:rgba(201,168,76,.06)}
+.cb:active{transform:scale(.96)}
+.moves-wrap{display:flex;flex-wrap:wrap;gap:3px;max-height:88px;overflow-y:auto;font-size:12px}
+.mn{color:var(--gold);font-weight:700;font-size:10px;margin-right:1px}
+.mc{background:var(--bg3);padding:2px 7px;border-radius:3px;cursor:pointer;transition:background .15s;font-weight:500}
+.mc:hover{background:var(--bg4);color:var(--gold)}
+.cand{display:flex;justify-content:space-between;align-items:center;padding:5px 9px;border-radius:5px;margin-bottom:3px;background:var(--bg3);font-size:12px;transition:background .15s}
+.cand:first-child{background:rgba(76,175,125,.08);border-left:2px solid var(--green)}
+.cand:hover{background:var(--bg4)}
+.cand-mv{color:var(--text);font-weight:700}
+.cand-sc{font-weight:600}
+.cand-sc.pos{color:var(--green)}
+.cand-sc.neg{color:var(--red)}
+.depth-row{display:flex;justify-content:space-between;font-size:10px;color:var(--text3);margin-top:4px}
+input[type=range]{width:100%;accent-color:var(--gold)}
+.theme-swatches{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:8px}
+.tsw{width:26px;height:26px;border-radius:4px;cursor:pointer;border:2px solid transparent;overflow:hidden;display:grid;grid-template-columns:1fr 1fr;grid-template-rows:1fr 1fr;transition:all .2s}
+.tsw.on{border-color:var(--gold);box-shadow:0 0 10px rgba(201,168,76,.35)}
+.tsw:hover{transform:scale(1.1)}
+.pt-btns{display:flex;gap:5px;flex-wrap:wrap}
+.ptb{padding:4px 10px;border-radius:4px;font-size:10px;font-weight:700;letter-spacing:.5px;cursor:pointer;border:1px solid var(--border);background:transparent;color:var(--text3);transition:all .2s;text-transform:uppercase}
+.ptb:hover{color:var(--text);border-color:var(--border2)}
+.ptb.on{border-color:var(--gold);color:var(--gold);background:rgba(201,168,76,.08)}
+.chat-wrap{display:flex;flex-direction:column;flex:1;min-height:0;overflow:hidden;background:var(--bg2);border:1px solid var(--border);border-radius:8px}
+.chat-msgs{flex:1;overflow-y:auto;padding:12px;display:flex;flex-direction:column;gap:8px;min-height:0}
+.cmsg{padding:8px 12px;border-radius:7px;font-size:12px;line-height:1.6;max-width:90%;animation:msgIn .3s ease}
+@keyframes msgIn{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:translateY(0)}}
+.cmsg.coach{background:var(--bg3);color:var(--text);align-self:flex-start;border-left:2px solid var(--gold)}
+.cmsg.user{background:rgba(76,175,125,.1);color:var(--text);align-self:flex-end;border-right:2px solid var(--green)}
+.chat-typing{display:none;align-self:flex-start;padding:8px 14px;border-radius:7px;background:var(--bg3)}
+.typing-dots span{display:inline-block;width:5px;height:5px;border-radius:50%;background:var(--text3);margin:0 2px;animation:tdot .8s ease-in-out infinite}
+.typing-dots span:nth-child(2){animation-delay:.15s}
+.typing-dots span:nth-child(3){animation-delay:.3s}
+@keyframes tdot{0%,60%,100%{transform:translateY(0)}30%{transform:translateY(-5px)}}
+.chat-in{display:flex;gap:6px;padding:8px;border-top:1px solid var(--border);flex-shrink:0}
+.chat-input{flex:1;background:var(--bg3);border:1px solid var(--border);color:var(--text);padding:7px 11px;border-radius:5px;font-size:12px;outline:none;font-family:inherit;transition:border-color .2s}
+.chat-input:focus{border-color:var(--gold)}
+.chat-send{background:linear-gradient(135deg,var(--gold),#b8902a);color:#0c0c10;border:none;padding:7px 14px;border-radius:5px;cursor:pointer;font-weight:700;font-size:12px;transition:all .2s}
+.chat-send:hover{transform:translateY(-1px);box-shadow:0 4px 14px rgba(201,168,76,.3)}
+.insight{display:flex;align-items:center;gap:8px;padding:8px 11px;border-radius:6px;border:1px solid;font-size:12px;font-weight:500;animation:insIn .35s ease forwards;opacity:0;margin-bottom:5px}
+@keyframes insIn{from{opacity:0;transform:translateX(12px)}to{opacity:1;transform:translateX(0)}}
+.ins-good{background:rgba(76,175,125,.06);border-color:rgba(76,175,125,.22);color:var(--green)}
+.ins-warn{background:rgba(224,92,92,.06);border-color:rgba(224,92,92,.22);color:var(--red)}
+.ins-info{background:rgba(92,143,224,.06);border-color:rgba(92,143,224,.22);color:var(--blue)}
+.ins-gold{background:rgba(201,168,76,.06);border-color:rgba(201,168,76,.22);color:var(--gold)}
+
+#page-analyse{flex-direction:column;overflow-y:auto;background:var(--bg)}
+.analyse-wrap{max-width:680px;margin:48px auto;padding:0 24px;width:100%}
+.page-heading{font-family:'Playfair Display',serif;font-size:32px;font-weight:700;margin-bottom:6px;color:var(--text)}
+.page-sub{color:var(--text2);font-size:14px;margin-bottom:28px;line-height:1.7}
+.inp-row{display:flex;gap:10px;margin-bottom:24px}
+.txt-inp{flex:1;background:var(--bg2);border:1px solid var(--border);color:var(--text);padding:11px 14px;border-radius:6px;font-size:14px;outline:none;font-family:inherit;transition:border-color .2s}
+.txt-inp:focus{border-color:var(--gold)}
+.inp-btn{padding:11px 24px;border-radius:6px;font-size:14px;font-weight:600;cursor:pointer;border:none;background:linear-gradient(135deg,var(--gold),#b8902a);color:#0c0c10;transition:all .25s}
+.inp-btn:hover{transform:translateY(-1px);box-shadow:0 6px 20px rgba(201,168,76,.28)}
+
+#page-puzzles{flex-direction:column;overflow-y:auto;background:var(--bg)}
+.puzz-hero{padding:60px 40px 40px;text-align:center;border-bottom:1px solid var(--border);background:radial-gradient(ellipse 60% 50% at 50% 0%,rgba(201,168,76,.05) 0%,transparent 70%)}
+.puzz-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:1px;background:var(--border);border-bottom:1px solid var(--border)}
+.puzz-card{background:var(--bg);padding:32px 24px;text-align:center;cursor:pointer;transition:background .2s;position:relative;overflow:hidden}
+.puzz-card:hover{background:var(--bg2)}
+.puzz-card:hover .puzz-icon{transform:translateY(-6px) scale(1.08)}
+.puzz-icon{font-size:52px;display:block;margin-bottom:14px;transition:transform .3s cubic-bezier(.34,1.56,.64,1)}
+.puzz-card h3{font-size:15px;font-weight:700;margin-bottom:5px}
+.puzz-card p{font-size:12px;color:var(--text2);margin-bottom:12px}
+.puzz-diff{display:inline-block;padding:3px 10px;border-radius:3px;font-size:10px;font-weight:700;letter-spacing:.5px;text-transform:uppercase}
+
+#page-profile{flex-direction:column;align-items:center;justify-content:center;background:var(--bg)}
+.profile-card{background:var(--bg2);border:1px solid var(--border);border-radius:12px;padding:48px;text-align:center;max-width:420px;width:90%}
+.profile-card h2{font-family:'Playfair Display',serif;font-size:28px;font-weight:700;margin-bottom:8px}
+.profile-card p{font-size:14px;color:var(--text2);margin-bottom:28px;line-height:1.7}
+.google-btn{display:flex;align-items:center;justify-content:center;gap:10px;width:100%;padding:13px;border-radius:6px;font-size:14px;font-weight:600;cursor:pointer;border:1px solid var(--border2);background:var(--bg3);color:var(--text);transition:all .25s}
+.google-btn:hover{border-color:var(--gold);color:var(--gold)}
+
+#result-overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,.82);z-index:500;align-items:center;justify-content:center;backdrop-filter:blur(8px)}
+#result-overlay.show{display:flex}
+.result-box{background:var(--bg2);border:1px solid var(--gold);border-radius:14px;padding:48px 40px;text-align:center;max-width:360px;animation:zoomIn .35s cubic-bezier(.34,1.56,.64,1)}
+@keyframes zoomIn{from{opacity:0;transform:scale(.85)}to{opacity:1;transform:scale(1)}}
+.result-box h2{font-family:'Playfair Display',serif;font-size:34px;color:var(--gold);margin-bottom:8px}
+.result-box p{color:var(--text2);margin-bottom:28px;font-size:14px}
+
+.spin{display:inline-block;width:14px;height:14px;border:2px solid var(--border);border-top-color:var(--gold);border-radius:50%;animation:spinA .7s linear infinite;vertical-align:middle;margin-right:6px}
+@keyframes spinA{to{transform:rotate(360deg)}}
+
+::-webkit-scrollbar{width:4px;height:4px}
+::-webkit-scrollbar-track{background:transparent}
+::-webkit-scrollbar-thumb{background:var(--bg4);border-radius:2px}
+
+@media(max-width:1100px){
+  #page-play{flex-direction:column;overflow-y:auto}
+  .board-area{border-right:none;border-bottom:1px solid var(--border)}
+  .right-panel{height:auto;min-height:400px}
+}
+@media(max-width:680px){
+  .sq{width:42px;height:42px}
+  .pc{font-size:28px}
+  #chess-board{grid-template-columns:repeat(8,42px);grid-template-rows:repeat(8,42px)}
+  .home-h1{font-size:38px}
+  #app-nav{padding:0 12px;gap:2px}
+  .nav-logo span{display:none}
+}
+</style>
+</head>
+<body>
+
+<div id="cur"></div>
+<div id="cur-ring"></div>
+
+<nav id="app-nav">
+  <div class="nav-logo">♟ Chess AI Coach <span>Beta</span></div>
+  <button class="nb on" onclick="goPage('home',this)">Home</button>
+  <button class="nb" onclick="goPage('play',this)">Play</button>
+  <button class="nb" onclick="goPage('analyse',this)">Analyse</button>
+  <button class="nb" onclick="goPage('puzzles',this)">Puzzles</button>
+  <button class="nb" onclick="goPage('profile',this)">Profile</button>
+  <div class="nav-spacer"></div>
+  <button class="nav-sign" onclick="goPage('profile',document.querySelectorAll('.nb')[4])">Sign In</button>
+</nav>
+
+<div id="page-home" class="page on">
+  <div class="home-hero">
+    <div class="home-eyebrow">AI-Powered Chess Coaching</div>
+    <h1 class="home-h1">Improve Faster With<br><em>Intelligent Analysis</em></h1>
+    <p class="home-sub">Personalised analysis of your real games, custom puzzles from your own mistakes, and an AI coach that knows every move.</p>
+    <div class="home-btns">
+      <button class="hbtn-gold" onclick="goPage('play',document.querySelectorAll('.nb')[1])">▶ Start Playing</button>
+      <button class="hbtn-ghost" onclick="goPage('analyse',document.querySelectorAll('.nb')[2])">📊 Analyse My Games</button>
+      <button class="hbtn-ghost" onclick="goPage('puzzles',document.querySelectorAll('.nb')[3])">🧩 Puzzles</button>
+    </div>
+  </div>
+  <div class="home-features">
+    <div class="feat"><div class="feat-icon">🔍</div><div class="feat-title">Deep Game Analysis</div><div class="feat-desc">Fetch your last 100 Chess.com games. Full weakness report — worst openings, blunder phases, pattern detection.</div></div>
+    <div class="feat"><div class="feat-icon">🧩</div><div class="feat-title">Custom Puzzles</div><div class="feat-desc">Puzzles built from your exact blunders. Train the specific mistakes you keep making.</div></div>
+    <div class="feat"><div class="feat-icon">🤖</div><div class="feat-title">AI Coach Chat</div><div class="feat-desc">Claude AI sees your board, move history, and engine eval at all times. Powered by streaming responses.</div></div>
+    <div class="feat"><div class="feat-icon">⚡</div><div class="feat-title">Play vs Engine</div><div class="feat-desc">Stockfish from 400–2800 Elo. Adjustable depth, take backs, flip board.</div></div>
+  </div>
+  <div class="home-pricing">
+    <div class="price-label">Simple Pricing</div>
+    <div class="price-amount">₹199</div>
+    <div class="price-period">per month · full access</div>
+    <div class="price-divider"></div>
+    <div class="price-feat">Full game analysis — last 100 games</div>
+    <div class="price-feat">Unlimited AI coach chat</div>
+    <div class="price-feat">Custom puzzles from your mistakes</div>
+    <div class="price-feat">Lichess puzzle database</div>
+    <div class="price-feat">Progress tracking dashboard</div>
+    <button class="price-cta">Get Started Free</button>
+    <div class="price-note">Free: 3-game preview · support@chessaicoach.com</div>
+  </div>
+</div>
+
+<div id="page-play" class="page">
+  <div class="eval-rail" id="eval-rail">
+    <div class="eval-black-fill" id="eval-black" style="height:50%"></div>
+    <div class="eval-white-fill" id="eval-white" style="height:50%"></div>
+    <div class="eval-midline"></div>
+  </div>
+  <div class="board-area">
+    <div class="board-player" id="player-black">
+      <div class="player-avatar">B</div>
+      <div class="player-name">Black</div>
+      <div class="player-time">—</div>
+    </div>
+    <div id="chess-board"></div>
+    <div class="board-player player-active" id="player-white">
+      <div class="player-avatar" style="color:var(--text2)">W</div>
+      <div class="player-name">White</div>
+      <div class="player-time">—</div>
+    </div>
+  </div>
+  <div class="right-panel">
+    <div class="panel-tabs">
+      <button class="ptab on" onclick="switchTab('game',this)">Game</button>
+      <button class="ptab" onclick="switchTab('engine',this)">Engine</button>
+      <button class="ptab" onclick="switchTab('theme',this)">Theme</button>
+      <button class="ptab" onclick="switchTab('coach',this)">Coach</button>
+    </div>
+    <div class="panel-body" id="tab-game">
+      <div class="pcard">
+        <div class="pcard-title">Position</div>
+        <div class="status-main" id="gst">White to move</div>
+        <div class="status-sub" id="eval-text">Engine: starting...</div>
+      </div>
+      <div class="pcard">
+        <div class="pcard-title">Controls</div>
+        <div class="ctrl-row">
+          <button class="cb" onclick="newGame()">New</button>
+          <button class="cb" onclick="takeBack()">↩ Back</button>
+          <button class="cb" onclick="flipBoard()">⟲ Flip</button>
+          <button class="cb" onclick="resignGame()">⚑ Resign</button>
+        </div>
+      </div>
+      <div class="pcard">
+        <div class="pcard-title">Move History</div>
+        <div class="moves-wrap" id="mvs"><span style="color:var(--text3);font-size:12px">No moves yet</span></div>
+      </div>
+      <div class="pcard" style="flex:1">
+        <div class="pcard-title">Insights</div>
+        <div id="insights"><div class="insight ins-gold" style="animation-delay:0s"><span>✦</span><span>Make a move to see tactical insights</span></div></div>
+      </div>
+    </div>
+    <div class="panel-body" id="tab-engine" style="display:none">
+      <div class="pcard">
+        <div class="pcard-title">Best Moves</div>
+        <div id="cands"><div style="color:var(--text3);font-size:12px">Waiting for position...</div></div>
+      </div>
+      <div class="pcard">
+        <div class="pcard-title">Analysis Depth</div>
+        <input type="range" id="depth-slider" min="1" max="20" value="12" step="1" oninput="updateDepth(this.value)">
+        <div class="depth-row"><span>Depth 1</span><span id="depth-val">Depth 12</span><span>Depth 20</span></div>
+      </div>
+      <div class="pcard">
+        <div class="pcard-title">Evaluation</div>
+        <div id="eval-detail" style="font-size:13px;color:var(--text2)">Make a move to see engine evaluation.</div>
+      </div>
+    </div>
+    <div class="panel-body" id="tab-theme" style="display:none">
+      <div class="pcard">
+        <div class="pcard-title">Board Theme</div>
+        <div class="theme-swatches" id="board-swatches"></div>
+      </div>
+      <div class="pcard">
+        <div class="pcard-title">Piece Style</div>
+        <div class="pt-btns" id="piece-btns"></div>
+      </div>
+      <div class="pcard" style="font-size:12px;color:var(--text2);line-height:1.7">
+        <div class="pcard-title">Tip</div>
+        More premium themes unlockable with Pro subscription.
+      </div>
+    </div>
+    <div class="panel-body" id="tab-coach" style="display:none;flex:1">
+      <div class="chat-wrap" style="flex:1">
+        <div class="chat-msgs" id="chat-msgs">
+          <div class="cmsg coach">♟ Welcome! I'm your Chess AI Coach. Make a move and ask me anything — I can see the board, move history, and engine evaluation at all times.</div>
+        </div>
+        <div class="chat-typing" id="chat-typing"><div class="typing-dots"><span></span><span></span><span></span></div></div>
+        <div class="chat-in">
+          <input type="text" class="chat-input" id="chat-inp" placeholder="Ask your coach anything..." onkeydown="if(event.key==='Enter')sendChat()">
+          <button class="chat-send" onclick="sendChat()">Send</button>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div id="page-analyse" class="page">
+  <div class="analyse-wrap">
+    <h2 class="page-heading">Game Analysis</h2>
+    <p class="page-sub">Enter your Chess.com username to fetch and analyse your last 100 games.</p>
+    <div class="inp-row">
+      <input type="text" class="txt-inp" id="chess-uname" placeholder="Your Chess.com username">
+      <button class="inp-btn" onclick="analyseGames()">Analyse →</button>
+    </div>
+    <div id="a-loading" style="display:none;text-align:center;padding:48px;color:var(--text2)"><div class="spin"></div>Fetching your games...</div>
+    <div id="a-results" style="display:none"></div>
+  </div>
+</div>
+
+<div id="page-puzzles" class="page">
+  <div class="puzz-hero">
+    <div class="home-eyebrow">Tactical Training</div>
+    <h2 class="home-h1" style="font-size:40px">Choose Your Challenge</h2>
+    <p class="home-sub" style="margin-bottom:0">Train with puzzles from your own mistakes, or filter the Lichess database by theme.</p>
+  </div>
+  <div class="puzz-grid">
+    <div class="puzz-card"><span class="puzz-icon">♙</span><h3>Pawn Tactics</h3><p>Forks, passed pawns, promotion</p><span class="puzz-diff" style="background:rgba(76,175,125,.12);color:var(--green)">Beginner</span></div>
+    <div class="puzz-card"><span class="puzz-icon">♘</span><h3>Knight Forks</h3><p>Double attacks, outposts, smothered mate</p><span class="puzz-diff" style="background:rgba(92,143,224,.12);color:var(--blue)">Intermediate</span></div>
+    <div class="puzz-card"><span class="puzz-icon">♗</span><h3>Bishop Patterns</h3><p>Diagonals, fianchetto, color complex</p><span class="puzz-diff" style="background:rgba(92,143,224,.12);color:var(--blue)">Intermediate</span></div>
+    <div class="puzz-card"><span class="puzz-icon">♖</span><h3>Rook Endgames</h3><p>Open files, 7th rank, Lucena</p><span class="puzz-diff" style="background:rgba(201,168,76,.12);color:var(--gold)">Advanced</span></div>
+    <div class="puzz-card"><span class="puzz-icon">♕</span><h3>Queen Attacks</h3><p>Combinations, sacrifices, mating nets</p><span class="puzz-diff" style="background:rgba(167,139,250,.12);color:#a78bfa">Expert</span></div>
+    <div class="puzz-card"><span class="puzz-icon">♔</span><h3>King Endgames</h3><p>Opposition, zugzwang, triangulation</p><span class="puzz-diff" style="background:rgba(224,92,92,.12);color:var(--red)">Master</span></div>
+  </div>
+</div>
+
+<div id="page-profile" class="page">
+  <div class="profile-card">
+    <div style="font-size:48px;margin-bottom:16px">♟</div>
+    <h2>Your Profile</h2>
+    <p>Sign in with Google to save your progress, track your puzzle rating, and unlock full analysis.</p>
+    <button class="google-btn">
+      <svg width="18" height="18" viewBox="0 0 24 24"><path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/><path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/><path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z"/><path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"/></svg>
+      Continue with Google
+    </button>
+    <div style="font-size:11px;color:var(--text3);margin-top:20px">Supabase OAuth — coming in Step 8</div>
+  </div>
+</div>
+
+<div id="result-overlay">
+  <div class="result-box">
+    <h2 id="r-title">Game Over</h2>
+    <p id="r-msg"></p>
+    <button class="hbtn-gold" onclick="newGame()" style="margin-right:10px">Play Again</button>
+    <button class="hbtn-ghost" onclick="closeResult()">Review</button>
+  </div>
+</div>
+
+<div id="drag-ghost"></div>
+
+<script>
+const SYM={wK:'♔',wQ:'♕',wR:'♖',wB:'♗',wN:'♘',wP:'♙',bK:'♚',bQ:'♛',bR:'♜',bB:'♝',bN:'♞',bP:'♟'};
+const FILES='abcdefgh'.split('');
+const BTHEMES=[
+  {id:'classic',n:'Classic',l:'#f0d9b5',d:'#b58863'},
+  {id:'walnut',n:'Walnut',l:'#f5deb3',d:'#8b6914'},
+  {id:'ocean',n:'Ocean',l:'#dee3e6',d:'#7fa7bd'},
+  {id:'forest',n:'Forest',l:'#ffffdd',d:'#6f9940'},
+  {id:'midnight',n:'Midnight',l:'#4a5568',d:'#1a202c'},
+  {id:'rose',n:'Rose',l:'#fce7e7',d:'#b05070'},
+];
+const PTHEMES=[{id:'standard',n:'Standard'},{id:'contrast',n:'Contrast'},{id:'gold',n:'Gold'},{id:'neon',n:'Neon'}];
+let bTheme='classic',pTheme='standard';
+let game=new Chess(),selSq=null,legal=[],isFlipped=false,lastSqs=[],depth=12,sfW=null,cands=[],dragFrom=null;
+let mx=0,my=0,trx=0,try_=0;
+
+document.addEventListener('mousemove',e=>{mx=e.clientX;my=e.clientY});
+(function cl(){
+  const c=document.getElementById('cur'),r=document.getElementById('cur-ring');
+  if(c){c.style.left=mx+'px';c.style.top=my+'px'}
+  trx+=(mx-trx)*.13;try_+=(my-try_)*.13;
+  if(r){r.style.left=trx+'px';r.style.top=try_+'px'}
+  requestAnimationFrame(cl);
+})();
+
+function goPage(name,btn){
+  document.querySelectorAll('.page').forEach(p=>p.classList.remove('on'));
+  document.querySelectorAll('.nb').forEach(b=>b.classList.remove('on'));
+  document.getElementById('page-'+name).classList.add('on');
+  if(btn)btn.classList.add('on');
+  if(name==='play'){renderBoard();if(!sfW)initSF();syncRail()}
+}
+function switchTab(name,btn){
+  document.querySelectorAll('.panel-body').forEach(p=>p.style.display='none');
+  document.querySelectorAll('.ptab').forEach(b=>b.classList.remove('on'));
+  document.getElementById('tab-'+name).style.display='flex';
+  if(btn)btn.classList.add('on');
+}
+function syncRail(){
+  const rail=document.getElementById('eval-rail');
+  const board=document.getElementById('chess-board');
+  if(rail&&board){rail.style.height=(board.getBoundingClientRect().height||480)+'px'}
+}
+
+function buildPickers(){
+  const bs=document.getElementById('board-swatches');
+  if(bs){
+    BTHEMES.forEach(t=>{
+      const s=document.createElement('div');
+      s.className='tsw'+(t.id===bTheme?' on':'');s.title=t.n;
+      s.innerHTML='<div style="background:'+t.l+'"></div><div style="background:'+t.d+'"></div><div style="background:'+t.d+'"></div><div style="background:'+t.l+'"></div>';
+      s.onclick=()=>{bTheme=t.id;document.querySelectorAll('.tsw').forEach(x=>x.classList.remove('on'));s.classList.add('on');renderBoard()};
+      bs.appendChild(s);
+    });
+  }
+  const pb=document.getElementById('piece-btns');
+  if(pb){
+    PTHEMES.forEach(t=>{
+      const b=document.createElement('button');
+      b.className='ptb'+(t.id===pTheme?' on':'');b.textContent=t.n;
+      b.onclick=()=>{pTheme=t.id;document.querySelectorAll('.ptb').forEach(x=>x.classList.remove('on'));b.classList.add('on');renderBoard()};
+      pb.appendChild(b);
+    });
+  }
+}
+
+function getPieceStyle(color){
+  if(pTheme==='contrast')return color==='w'?'color:#ffffff;-webkit-text-stroke:2px #000;filter:drop-shadow(0 2px 4px rgba(0,0,0,1))':'color:#000000;-webkit-text-stroke:1px #666;filter:drop-shadow(0 1px 3px rgba(0,0,0,.6))';
+  if(pTheme==='gold')return color==='w'?'color:#e8c97e;-webkit-text-stroke:1px #8a5c00;filter:drop-shadow(0 2px 5px rgba(0,0,0,1))':'color:#1a0a00;-webkit-text-stroke:1px #888;filter:drop-shadow(0 1px 3px rgba(0,0,0,.6))';
+  if(pTheme==='neon')return color==='w'?'color:#00ffff;filter:drop-shadow(0 0 8px #00ffff)':'color:#ff00ff;filter:drop-shadow(0 0 8px #ff00ff)';
+  return color==='w'?'color:#ffffff;filter:drop-shadow(0 0 2px rgba(0,0,0,1)) drop-shadow(0 2px 4px rgba(0,0,0,.9))':'color:#1a0800;filter:drop-shadow(0 1px 3px rgba(0,0,0,.6))';
+}
+
+function renderBoard(){
+  const c=document.getElementById('chess-board');if(!c)return;c.innerHTML='';
+  const bt=BTHEMES.find(t=>t.id===bTheme)||BTHEMES[0];
+  const ranks=isFlipped?[1,2,3,4,5,6,7,8]:[8,7,6,5,4,3,2,1];
+  const files=isFlipped?['h','g','f','e','d','c','b','a']:FILES;
+  let chkSq=null;
+  if(game.in_check()){
+    const turn=game.turn(),b=game.board();
+    outer:for(let r=0;r<8;r++)for(let cc=0;cc<8;cc++){const p=b[r][cc];if(p&&p.type==='k'&&p.color===turn){chkSq=FILES[cc]+(8-r);break outer}}
+  }
+  ranks.forEach((rank,ri)=>{
+    files.forEach((file,fi)=>{
+      const sqn=file+rank,isL=(FILES.indexOf(file)+rank)%2===0;
+      const el=document.createElement('div');
+      el.className='sq '+(isL?'light':'dark');el.dataset.sq=sqn;el.style.background=isL?bt.l:bt.d;
+      if(lastSqs[0]===sqn)el.classList.add('lm-from');
+      if(lastSqs[1]===sqn)el.classList.add('lm-to');
+      if(selSq===sqn)el.classList.add('sel');
+      if(chkSq===sqn)el.classList.add('in-chk');
+      if(legal.includes(sqn))el.classList.add(game.get(sqn)?'legal-cap':'legal');
+      const piece=game.get(sqn);
+      if(piece){
+        const key=(piece.color==='w'?'w':'b')+piece.type.toUpperCase();
+        const pw=document.createElement('div');pw.style.cssText='width:100%;height:100%;display:flex;align-items:center;justify-content:center;cursor:grab';
+        const pc=document.createElement('span');pc.className='pc';pc.textContent=SYM[key]||'?';pc.style.cssText=getPieceStyle(piece.color);
+        pw.appendChild(pc);el.appendChild(pw);
+        pw.addEventListener('mousedown',e=>startDrag(e,sqn,SYM[key],piece.color));
+        pw.addEventListener('touchstart',e=>startDragT(e,sqn,SYM[key],piece.color),{passive:false});
+      }
+      if(fi===0){const rl=document.createElement('span');rl.className='coord-r';rl.textContent=rank;el.appendChild(rl)}
+      if(ri===7){const fl=document.createElement('span');fl.className='coord-f';fl.textContent=file;el.appendChild(fl)}
+      el.addEventListener('click',()=>handleClick(sqn));
+      c.appendChild(el);
+    });
+  });
+  syncRail();
+}
+
+function handleClick(sq){
+  if(game.game_over())return;
+  const piece=game.get(sq);
+  if(selSq){
+    if(legal.includes(sq)){makeMove(selSq,sq);return}
+    if(piece&&piece.color===game.turn()){selSq=sq;legal=game.moves({square:sq,verbose:true}).map(m=>m.to);renderBoard();return}
+    selSq=null;legal=[];renderBoard();return;
+  }
+  if(piece&&piece.color===game.turn()){selSq=sq;legal=game.moves({square:sq,verbose:true}).map(m=>m.to);renderBoard()}
+}
+
+function makeMove(from,to){
+  const m=game.move({from,to,promotion:'q'});if(!m)return false;
+  lastSqs=[from,to];selSq=null;legal=[];
+  updateHistory();updateStatus();askSF();updateInsights(m);renderBoard();
+  return true;
+}
+
+function startDrag(e,sq,char,color){
+  const piece=game.get(sq);if(!piece||piece.color!==game.turn())return;
+  e.preventDefault();dragFrom=sq;selSq=sq;legal=game.moves({square:sq,verbose:true}).map(m=>m.to);renderBoard();
+  const g=document.getElementById('drag-ghost');
+  g.textContent=char;g.style.cssText=getPieceStyle(color)+';position:fixed;pointer-events:none;z-index:9999;font-size:52px;transform:translate(-50%,-50%);display:block;left:'+e.clientX+'px;top:'+e.clientY+'px';
+  document.addEventListener('mousemove',onDM);document.addEventListener('mouseup',onDU);
+}
+function onDM(e){const g=document.getElementById('drag-ghost');g.style.left=e.clientX+'px';g.style.top=e.clientY+'px'}
+function onDU(e){
+  document.removeEventListener('mousemove',onDM);document.removeEventListener('mouseup',onDU);
+  document.getElementById('drag-ghost').style.display='none';
+  const el=document.elementFromPoint(e.clientX,e.clientY),t=el&&el.closest('[data-sq]');
+  if(dragFrom&&t&&t.dataset.sq!==dragFrom){if(!makeMove(dragFrom,t.dataset.sq)){selSq=null;legal=[];renderBoard()}}
+  else{selSq=null;legal=[];renderBoard()}
+  dragFrom=null;
+}
+function startDragT(e,sq,char,color){
+  const piece=game.get(sq);if(!piece||piece.color!==game.turn())return;
+  e.preventDefault();dragFrom=sq;selSq=sq;legal=game.moves({square:sq,verbose:true}).map(m=>m.to);renderBoard();
+  const touch=e.touches[0],g=document.getElementById('drag-ghost');
+  g.textContent=char;g.style.cssText=getPieceStyle(color)+';position:fixed;pointer-events:none;z-index:9999;font-size:52px;transform:translate(-50%,-50%);display:block;left:'+touch.clientX+'px;top:'+touch.clientY+'px';
+  document.addEventListener('touchmove',onTM,{passive:false});document.addEventListener('touchend',onTE);
+}
+function onTM(e){e.preventDefault();const t=e.touches[0],g=document.getElementById('drag-ghost');g.style.left=t.clientX+'px';g.style.top=t.clientY+'px'}
+function onTE(e){
+  document.removeEventListener('touchmove',onTM);document.removeEventListener('touchend',onTE);
+  document.getElementById('drag-ghost').style.display='none';
+  const t=e.changedTouches[0],el=document.elementFromPoint(t.clientX,t.clientY),tEl=el&&el.closest('[data-sq]');
+  if(dragFrom&&tEl&&tEl.dataset.sq!==dragFrom){if(!makeMove(dragFrom,tEl.dataset.sq)){selSq=null;legal=[];renderBoard()}}
+  else{selSq=null;legal=[];renderBoard()}
+  dragFrom=null;
+}
+
+function updateStatus(){
+  let s='';
+  if(game.in_checkmate()){const w=game.turn()==='w'?'Black':'White';s='♛ Checkmate — '+w+' wins!';showResult('Checkmate!',w+' wins.')}
+  else if(game.in_stalemate()){s='Stalemate — Draw';showResult('Stalemate','Draw by stalemate.')}
+  else if(game.insufficient_material()){s='Draw — Insufficient material';showResult('Draw','Insufficient material.')}
+  else if(game.in_threefold_repetition()){s='Draw — Threefold repetition';showResult('Draw','Threefold repetition.')}
+  else if(game.in_draw()){s='Draw';showResult('Draw','The game is a draw.')}
+  else{const t=game.turn()==='w'?'White':'Black';s=(game.in_check()?'⚠ Check! ':'')+t+' to move'}
+  const el=document.getElementById('gst');if(el)el.textContent=s;
+  document.getElementById('player-white').classList.toggle('player-active',game.turn()==='w');
+  document.getElementById('player-black').classList.toggle('player-active',game.turn()==='b');
+}
+
+function updateHistory(){
+  const h=game.history(),el=document.getElementById('mvs');if(!el)return;
+  if(!h.length){el.innerHTML='<span style="color:var(--text3);font-size:12px">No moves yet</span>';return}
+  let html='';
+  h.forEach((mv,i)=>{if(i%2===0)html+='<span class="mn">'+(Math.floor(i/2)+1)+'.</span>';html+='<span class="mc">'+mv+'</span> '});
+  el.innerHTML=html;el.scrollTop=el.scrollHeight;
+}
+
+function updateInsights(move){
+  const el=document.getElementById('insights');if(!el)return;
+  const ins=[],h=game.history();
+  if(move.flags.includes('e'))ins.push({cls:'ins-info',icon:'⟳',text:'En passant capture'});
+  if(move.flags.includes('k')||move.flags.includes('q'))ins.push({cls:'ins-good',icon:'♜',text:'Castled — king is safer'});
+  if(move.flags.includes('p'))ins.push({cls:'ins-gold',icon:'♛',text:'Pawn promoted to Queen!'});
+  if(game.in_check())ins.push({cls:'ins-warn',icon:'⚠',text:'King is in check!'});
+  if(h.length===1)ins.push({cls:'ins-gold',icon:'✦',text:'Opening phase has begun'});
+  if(h.length===20)ins.push({cls:'ins-info',icon:'⚔',text:'Entering middlegame phase'});
+  if(!ins.length){const pool=[{cls:'ins-info',icon:'♞',text:'Watch for fork opportunities'},{cls:'ins-good',icon:'♝',text:'Control the center squares'},{cls:'ins-gold',icon:'✦',text:'Develop your minor pieces'},{cls:'ins-info',icon:'♜',text:'Connect your rooks'},{cls:'ins-good',icon:'♔',text:'Keep your king safe'}];ins.push(pool[h.length%pool.length])}
+  el.innerHTML=ins.map((i,idx)=>'<div class="insight '+i.cls+'" style="animation-delay:'+(idx*.1)+'s"><span>'+i.icon+'</span><span>'+i.text+'</span></div>').join('');
+}
+
+function newGame(){
+  game=new Chess();selSq=null;legal=[];lastSqs=[];cands=[];
+  updateHistory();updateStatus();updateEvalBar(0);closeResult();
+  const et=document.getElementById('eval-text');if(et)et.textContent='Engine: starting...';
+  const cd=document.getElementById('cands');if(cd)cd.innerHTML='<div style="color:var(--text3);font-size:12px">Waiting for position...</div>';
+  const ins=document.getElementById('insights');if(ins)ins.innerHTML='<div class="insight ins-gold"><span>✦</span><span>Make a move to see tactical insights</span></div>';
+  renderBoard();askSF();
+  addCoachMsg('New game! Make your first move — I\'ll analyse every position. Good luck! ♟');
+}
+function takeBack(){
+  if(!game.history().length)return;game.undo();selSq=null;legal=[];
+  const h=game.history({verbose:true});lastSqs=h.length?[h[h.length-1].from,h[h.length-1].to]:[];
+  updateHistory();updateStatus();askSF();renderBoard();
+  addCoachMsg('Take back used! Think about what you would do differently.');
+}
+function flipBoard(){isFlipped=!isFlipped;renderBoard()}
+function resignGame(){
+  if(!game.history().length)return;
+  const r=game.turn()==='w'?'White':'Black',w=game.turn()==='w'?'Black':'White';
+  showResult(r+' Resigned',w+' wins!');
+}
+function updateDepth(v){depth=parseInt(v);const el=document.getElementById('depth-val');if(el)el.textContent='Depth '+v;askSF()}
+function showResult(title,msg){document.getElementById('r-title').textContent=title;document.getElementById('r-msg').textContent=msg;document.getElementById('result-overlay').classList.add('show')}
+function closeResult(){document.getElementById('result-overlay').classList.remove('show')}
+
+function updateEvalBar(score){
+  const c=Math.max(-10,Math.min(10,score)),wp=50+(c/10)*45;
+  const ew=document.getElementById('eval-white'),eb=document.getElementById('eval-black');
+  if(ew)ew.style.height=wp+'%';if(eb)eb.style.height=(100-wp)+'%';
+}
+
+function initSF(){
+  try{
+    sfW=new Worker('stockfish.js');
+    sfW.onmessage=onSFMsg;sfW.postMessage('uci');sfW.postMessage('isready');
+    setTimeout(()=>askSF(),1400);
+  }catch(e){const et=document.getElementById('eval-text');if(et)et.textContent='Engine: unavailable'}
+}
+function onSFMsg(e){
+  const msg=e.data;if(typeof msg!=='string')return;
+  if(msg.startsWith('info depth'))parseSF(msg);
+  if(msg.startsWith('bestmove'))renderCands();
+}
+function parseSF(msg){
+  const dm=msg.match(/depth (\d+)/),sm=msg.match(/score cp (-?\d+)/),mm=msg.match(/score mate (-?\d+)/),pv=msg.match(/ pv (.+)/);
+  if(!dm||parseInt(dm[1])<6)return;
+  let score=null,disp='';
+  if(sm){score=parseInt(sm[1])/100;if(game.turn()==='b')score=-score;disp=(score>=0?'+':'')+score.toFixed(1)}
+  else if(mm){const m=parseInt(mm[1]);score=m>0?99:-99;disp='#'+Math.abs(m)}
+  if(score===null)return;
+  const et=document.getElementById('eval-text');
+  if(et){const cls=score>0.3?'eb-pos':score<-0.3?'eb-neg':'eb-eq';et.innerHTML='Engine eval <span class="eval-badge '+cls+'">'+disp+'</span> depth '+dm[1]}
+  const ed=document.getElementById('eval-detail');
+  if(ed){const who=score>0?'White':'Black',adv=Math.abs(score)>99?'forced mate':Math.abs(score).toFixed(1)+' pawns';ed.innerHTML='<strong style="color:var(--text)">'+disp+'</strong> — '+(Math.abs(score)<0.2?'Equal position':who+' is better by '+adv)+'<br><span style="color:var(--text3);font-size:11px;margin-top:4px;display:block">Depth '+dm[1]+' · Stockfish 16</span>'}
+  updateEvalBar(score);
+  if(pv){const mvs=pv[1].trim().split(' ').slice(0,3),tmp=new Chess(game.fen()),parsed=[];mvs.forEach((uci,i)=>{const m=tmp.move({from:uci.slice(0,2),to:uci.slice(2,4),promotion:uci[4]||'q'});if(m)parsed.push({san:m.san,score:i===0?disp:''})});if(parsed.length)cands=parsed}
+}
+function renderCands(){
+  const el=document.getElementById('cands');if(!el)return;
+  if(!cands.length){el.innerHTML='<div style="color:var(--text3);font-size:12px">Waiting...</div>';return}
+  el.innerHTML=cands.map((c,i)=>{const sc=parseFloat(c.score),cls=!isNaN(sc)?(sc>=0?'pos':'neg'):'';return '<div class="cand"><span class="cand-mv">'+(i+1)+'. '+c.san+'</span><span class="cand-sc '+cls+'">'+c.score+'</span></div>'}).join('');
+}
+function askSF(){
+  if(!sfW)return;cands=[];sfW.postMessage('stop');sfW.postMessage('position fen '+game.fen());sfW.postMessage('go depth '+depth);
+}
+
+function addCoachMsg(text){
+  const el=document.getElementById('chat-msgs');if(!el)return;
+  const d=document.createElement('div');d.className='cmsg coach';d.textContent=text;el.appendChild(d);el.scrollTop=el.scrollHeight;
+}
+function sendChat(){
+  const inp=document.getElementById('chat-inp');if(!inp)return;
+  const txt=inp.value.trim();if(!txt)return;inp.value='';
+  const el=document.getElementById('chat-msgs');if(!el)return;
+  const d=document.createElement('div');d.className='cmsg user';d.textContent=txt;el.appendChild(d);el.scrollTop=el.scrollHeight;
+  const typing=document.getElementById('chat-typing');if(typing)typing.style.display='block';
+  setTimeout(()=>{
+    if(typing)typing.style.display='none';
+    const hist=game.history().slice(-4).join(', ')||'opening';
+    addCoachMsg('I see your position — recent moves: '+hist+'. Claude API connects in Step 10 for real AI analysis!');
+  },1200);
+}
+
+function analyseGames(){
+  const u=document.getElementById('chess-uname');if(!u||!u.value.trim()){alert('Enter your Chess.com username!');return}
+  const al=document.getElementById('a-loading'),ar=document.getElementById('a-results');
+  if(al)al.style.display='block';if(ar)ar.style.display='none';
+  setTimeout(()=>{
+    if(al)al.style.display='none';
+    if(ar){ar.style.display='block';ar.innerHTML='<div style="background:var(--bg2);border:1px solid var(--border);border-radius:8px;padding:28px"><div style="font-family:Playfair Display,serif;font-size:20px;font-weight:700;color:var(--gold);margin-bottom:10px">Analysis for: '+u.value.trim()+'</div><p style="color:var(--text2);font-size:14px;line-height:1.8">Railway backend connects in Step 4. Will show: last 100 games, worst openings, blunder detection, and custom puzzles from your mistakes.</p></div>'}
+  },1800);
+}
+
+window.addEventListener('load',()=>buildPickers());
+</script>
+</body>
+</html>
