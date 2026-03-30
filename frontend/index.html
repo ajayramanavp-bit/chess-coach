@@ -693,14 +693,14 @@ function sendChat(){
 }
 
 async function analyseGames() {
-  const username = document.getElementById('usernameInput').value.trim();
+  const username = document.getElementById('chess-uname').value.trim();
   if (!username) {
     alert('Please enter a Chess.com username first.');
     return;
   }
 
-  const reportDiv = document.getElementById('analysisReport');
-  reportDiv.innerHTML = '<p style="color:#aaa;">⏳ Fetching games from Chess.com… this may take 10–20 seconds.</p>';
+  const reportDiv = document.getElementById('a-results');
+  reportDiv.style.display='block'; reportDiv.innerHTML = '<p style="color:#aaa;">⏳ Fetching games from Chess.com… this may take 10–20 seconds.</p>';
 
   let games = [];
 
@@ -792,7 +792,7 @@ async function analyseGames() {
       // Extract only the moves line (after headers)
       const movesSection = pgnClean.replace(/\[[^\]]*\]\s*/g, '').trim();
 
-      chess.loadPgn(movesSection.length > 0 ? pgnClean : pgn);
+      chess.load_pgn(movesSection.length > 0 ? pgnClean : pgn);
       const history  = chess.history({ verbose: true });
       const chess2   = new Chess();   // replay from start
 
