@@ -765,8 +765,12 @@ async function analyseGames() {
     const ecoMatch   = pgn.match(/\[ECO\s+"([^"]+)"\]/);
     const openMatch  = pgn.match(/\[Opening\s+"([^"]+)"\]/);
     const openingKey = openMatch
-      ? openMatch[1]
-      : (ecoMatch ? ecoMatch[1] : 'Unknown Opening');
+  ? openMatch[1]
+  : (ecoMatch
+      ? ecoMatch[1]
+      : (game.eco
+          ? game.eco.split('/').pop().replace(/-/g, ' ')
+          : 'Unknown Opening'));
 
     if (!openingStats[openingKey]) {
       openingStats[openingKey] = { wins: 0, losses: 0, draws: 0, total: 0 };
