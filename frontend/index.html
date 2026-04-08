@@ -8,7 +8,7 @@
 <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@700;900&family=DM+Sans:wght@300;400;500;600&display=swap" rel="stylesheet">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/chess.js/0.10.3/chess.min.js"></script>
 <style>
-/* ─── RESET & BASE ─────────────────────────────────────── */
+/* ─── RESET & BASE ─────────────────────────────────────────────────────── */
 *{margin:0;padding:0;box-sizing:border-box}
 :root{
   --bg:#0c0c10;--bg2:#13131a;--bg3:#1a1a24;--bg4:#21212e;
@@ -234,6 +234,7 @@ input[type=range]{width:100%;accent-color:var(--gold)}
   <button class="nav-sign" onclick="goPage('profile',document.querySelectorAll('.nb')[4])">Sign In</button>
 </nav>
 
+<!-- HOME PAGE -->
 <div id="page-home" class="page on">
   <div class="home-hero">
     <div class="home-eyebrow">AI-Powered Chess Coaching</div>
@@ -266,6 +267,7 @@ input[type=range]{width:100%;accent-color:var(--gold)}
   </div>
 </div>
 
+<!-- PLAY PAGE -->
 <div id="page-play" class="page">
   <div class="eval-rail" id="eval-rail">
     <div class="eval-black-fill" id="eval-black" style="height:50%"></div>
@@ -348,7 +350,7 @@ input[type=range]{width:100%;accent-color:var(--gold)}
     <div class="panel-body" id="tab-coach" style="display:none;flex:1">
       <div class="chat-wrap" style="flex:1">
         <div class="chat-msgs" id="chat-msgs">
-          <div class="cmsg coach">♟ Welcome! I'm your Chess AI Coach. Make a move and ask me anything — I can see the board, move history, and engine evaluation at all times.</div>
+          <div class="cmsg coach">♟ Welcome! I'm your Chess AI Coach powered by Claude. Make a move and ask me anything — I can see the board, move history, and engine evaluation at all times.</div>
         </div>
         <div class="chat-typing" id="chat-typing"><div class="typing-dots"><span></span><span></span><span></span></div></div>
         <div class="chat-in">
@@ -360,6 +362,7 @@ input[type=range]{width:100%;accent-color:var(--gold)}
   </div>
 </div>
 
+<!-- ANALYSE PAGE -->
 <div id="page-analyse" class="page">
   <div class="analyse-wrap">
     <h2 class="page-heading">Game Analysis</h2>
@@ -373,6 +376,7 @@ input[type=range]{width:100%;accent-color:var(--gold)}
   </div>
 </div>
 
+<!-- PUZZLES PAGE -->
 <div id="page-puzzles" class="page">
   <div class="puzz-hero">
     <div class="home-eyebrow">Tactical Training</div>
@@ -389,6 +393,7 @@ input[type=range]{width:100%;accent-color:var(--gold)}
   </div>
 </div>
 
+<!-- PROFILE PAGE -->
 <div id="page-profile" class="page">
   <div class="profile-card">
     <div style="font-size:48px;margin-bottom:16px">♟</div>
@@ -402,6 +407,7 @@ input[type=range]{width:100%;accent-color:var(--gold)}
   </div>
 </div>
 
+<!-- RESULT OVERLAY -->
 <div id="result-overlay">
   <div class="result-box">
     <h2 id="r-title">Game Over</h2>
@@ -616,13 +622,13 @@ function newGame(){
   const cd=document.getElementById('cands');if(cd)cd.innerHTML='<div style="color:var(--text3);font-size:12px">Waiting for position...</div>';
   const ins=document.getElementById('insights');if(ins)ins.innerHTML='<div class="insight ins-gold"><span>✦</span><span>Make a move to see tactical insights</span></div>';
   renderBoard();askSF();
-  addCoachMsg('New game! Make your first move — I\'ll analyse every position. Good luck! ♟');
+  addCoachMsg('New game started! Make your first move and ask me anything about the position. Good luck! ♟');
 }
 function takeBack(){
   if(!game.history().length)return;game.undo();selSq=null;legal=[];
   const h=game.history({verbose:true});lastSqs=h.length?[h[h.length-1].from,h[h.length-1].to]:[];
   updateHistory();updateStatus();askSF();renderBoard();
-  addCoachMsg('Take back used! Think about what you would do differently.');
+  addCoachMsg('Take back used! Think carefully about why that move was a mistake before trying again.');
 }
 function flipBoard(){isFlipped=!isFlipped;renderBoard()}
 function resignGame(){
@@ -675,711 +681,326 @@ function askSF(){
   if(!sfW)return;cands=[];sfW.postMessage('stop');sfW.postMessage('position fen '+game.fen());sfW.postMessage('go depth '+depth);
 }
 
+// ── AI COACH CHAT (Real Claude API via Railway backend) ───────────────────
+function addCoachMsg(text){
+  const el=document.getElementById('chat-msgs');if(!el)return;
+  const d=document.createElement('div');d.className='cmsg coach';d.textContent=text;
+  el.appendChild(d);el.scrollTop=el.scrollHeight;
+}
+
+function sendChat(){
+  const inp=document.getElementById('chat-inp');if(!inp)return;
+  const txt=inp.value.trim();if(!txt)return;
+  inp.value='';
+
+  const el=document.getElementById('chat-msgs');if(!el)return;
+
+  // Add the user's message bubble
+  const ud=document.createElement('div');
+  ud.className='cmsg user';
+  ud.textContent=txt;
+  el.appendChild(ud);
+  el.scrollTop=el.scrollHeight;
+
+  // Show typing indicator
+  const typing=document.getElementById('chat-typing');
+  if(typing)typing.style.display='block';
+
+  // Gather board context to send to the coach
+  const currentFen=game.fen();
+  const moveHistory=game.history().slice(-10);
+  const evalEl=document.getElementById('eval-text');
+  const evalScore=evalEl?evalEl.textContent.replace('Engine eval','').trim():'unknown';
+
+  // Create an empty coach reply bubble — text will stream into it
+  const cd=document.createElement('div');
+  cd.className='cmsg coach';
+  cd.textContent='';
+  el.appendChild(cd);
+
+  // Call the Railway backend which proxies to Claude
+  fetch('https://chess-coach-production-86a2.up.railway.app/api/chat',{
+    method:'POST',
+    headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({
+      message:txt,
+      fen:currentFen,
+      history:moveHistory,
+      eval:evalScore
+    })
+  })
+  .then(function(res){
+    if(!res.ok)throw new Error('Server returned '+res.status);
+    if(typing)typing.style.display='none';
+
+    // Stream the response word by word
+    const reader=res.body.getReader();
+    const decoder=new TextDecoder();
+    let buffer='';
+
+    function readNext(){
+      reader.read().then(function(result){
+        if(result.done){
+          if(typing)typing.style.display='none';
+          if(!cd.textContent.trim()){
+            cd.textContent='Sorry, I could not get a response. Check that ANTHROPIC_API_KEY is set in Railway.';
+          }
+          el.scrollTop=el.scrollHeight;
+          return;
+        }
+
+        buffer+=decoder.decode(result.value,{stream:true});
+        const lines=buffer.split('\n');
+        // Keep the last incomplete line in the buffer
+        buffer=lines.pop()||'';
+
+        lines.forEach(function(line){
+          if(!line.startsWith('data: '))return;
+          const data=line.slice(6).trim();
+          if(data==='[DONE]')return;
+          try{
+            const parsed=JSON.parse(data);
+            if(parsed.text){
+              cd.textContent+=parsed.text;
+              el.scrollTop=el.scrollHeight;
+            }
+          }catch(_){}
+        });
+
+        readNext();
+      }).catch(function(err){
+        if(typing)typing.style.display='none';
+        cd.textContent='Stream error: '+err.message;
+        el.scrollTop=el.scrollHeight;
+      });
+    }
+
+    readNext();
+  })
+  .catch(function(err){
+    if(typing)typing.style.display='none';
+    cd.textContent='Could not reach the coach server. Make sure your Railway backend is running.';
+    el.scrollTop=el.scrollHeight;
+  });
+}
+
+// ── ANALYSE GAMES ─────────────────────────────────────────────────────────
 function createAnalysisWorker(){
   return new Promise(function(resolve,reject){
     try{
-      var worker = new Worker('stockfish.js');
-      var ready = false;
-      var timeout = setTimeout(function(){
-        if (!ready) {
-          try { worker.terminate(); } catch (_) {}
-          reject(new Error('Stockfish did not finish loading.'));
-        }
-      }, 12000);
-
-      worker.onmessage = function(e){
-        var msg = e.data;
-        if (typeof msg !== 'string') return;
-        if (msg === 'readyok') {
-          ready = true;
-          clearTimeout(timeout);
-          resolve(worker);
-        }
+      var worker=new Worker('stockfish.js');
+      var ready=false;
+      var timeout=setTimeout(function(){
+        if(!ready){try{worker.terminate()}catch(_){}reject(new Error('Stockfish did not finish loading.'))}
+      },12000);
+      worker.onmessage=function(e){
+        var msg=e.data;if(typeof msg!=='string')return;
+        if(msg==='readyok'){ready=true;clearTimeout(timeout);resolve(worker)}
       };
-
-      worker.postMessage('uci');
-      worker.postMessage('isready');
-    }catch(err){
-      reject(err);
-    }
+      worker.postMessage('uci');worker.postMessage('isready');
+    }catch(err){reject(err)}
   });
 }
 
-function normalizeEngineScore(score, perspectiveColor){
-  if (!score) return 0;
-  var sign = perspectiveColor === 'white' ? 1 : -1;
-  if (score.type === 'mate') return sign * (score.value > 0 ? 10000 : -10000);
-  return sign * score.value;
+function normalizeEngineScore(score,perspectiveColor){
+  if(!score)return 0;
+  var sign=perspectiveColor==='white'?1:-1;
+  if(score.type==='mate')return sign*(score.value>0?10000:-10000);
+  return sign*score.value;
 }
 
-function evaluateFen(worker, fen, perspectiveColor, moveTimeMs){
-  return new Promise(function(resolve, reject){
-    var best = null;
-    var settled = false;
-    var timer = null;
-
-    function cleanup(){
-      clearTimeout(timer);
-      worker.onmessage = null;
-    }
-
-    function finish(result){
-      if (settled) return;
-      settled = true;
-      cleanup();
-      resolve(normalizeEngineScore(result || { type: 'cp', value: 0 }, perspectiveColor));
-    }
-
-    worker.onmessage = function(e){
-      var msg = e.data;
-      if (typeof msg !== 'string') return;
-
-      if (msg.indexOf('score mate ') >= 0) {
-        var mateMatch = msg.match(/score mate (-?\d+)/);
-        if (mateMatch) best = { type: 'mate', value: parseInt(mateMatch[1], 10) };
-      } else if (msg.indexOf('score cp ') >= 0) {
-        var cpMatch = msg.match(/score cp (-?\d+)/);
-        if (cpMatch) best = { type: 'cp', value: parseInt(cpMatch[1], 10) };
-      }
-
-      if (msg.startsWith('bestmove')) finish(best);
+function evaluateFen(worker,fen,perspectiveColor,moveTimeMs){
+  return new Promise(function(resolve,reject){
+    var best=null,settled=false,timer=null;
+    function cleanup(){clearTimeout(timer);worker.onmessage=null}
+    function finish(result){if(settled)return;settled=true;cleanup();resolve(normalizeEngineScore(result||{type:'cp',value:0},perspectiveColor))}
+    worker.onmessage=function(e){
+      var msg=e.data;if(typeof msg!=='string')return;
+      if(msg.indexOf('score mate ')>=0){var mateMatch=msg.match(/score mate (-?\d+)/);if(mateMatch)best={type:'mate',value:parseInt(mateMatch[1],10)}}
+      else if(msg.indexOf('score cp ')>=0){var cpMatch=msg.match(/score cp (-?\d+)/);if(cpMatch)best={type:'cp',value:parseInt(cpMatch[1],10)}}
+      if(msg.startsWith('bestmove'))finish(best);
     };
-
-    timer = setTimeout(function(){ finish(best); }, Math.max(1200, moveTimeMs * 6));
-
-    try{
-      worker.postMessage('stop');
-      worker.postMessage('position fen ' + fen);
-      worker.postMessage('go movetime ' + moveTimeMs);
-    }catch(err){
-      cleanup();
-      reject(err);
-    }
+    timer=setTimeout(function(){finish(best)},Math.max(1200,moveTimeMs*6));
+    try{worker.postMessage('stop');worker.postMessage('position fen '+fen);worker.postMessage('go movetime '+moveTimeMs)}
+    catch(err){cleanup();reject(err)}
   });
 }
 
-function formatOpeningName(gameData, pgn){
-  var openMatch = pgn && pgn.match(/\[Opening\s+"([^"]+)"\]/);
-  var variationMatch = pgn && pgn.match(/\[Variation\s+"([^"]+)"\]/);
-  var ecoMatch = pgn && pgn.match(/\[ECO\s+"([^"]+)"\]/);
-
-  if (openMatch) {
-    var named = openMatch[1];
-    if (variationMatch && named.toLowerCase().indexOf(variationMatch[1].toLowerCase()) === -1) named += ': ' + variationMatch[1];
-    if (ecoMatch) named += ' (' + ecoMatch[1] + ')';
-    return named;
-  }
-
-  if (gameData && gameData.eco) {
-    var slug = String(gameData.eco).split('/').filter(Boolean).pop() || '';
-    var parts = slug.split('-');
-    var ecoCode = '';
-    if (parts.length && /^[a-e]\d{2}$/i.test(parts[0])) ecoCode = parts.shift().toUpperCase();
-    var words = parts.map(function(part){
-      return part.charAt(0).toUpperCase() + part.slice(1);
-    }).join(' ');
-    if (ecoCode && words) return words + ' (' + ecoCode + ')';
-    if (words) return words;
-    if (ecoCode) return ecoCode;
-  }
-
-  if (ecoMatch) return ecoMatch[1];
-  return 'Unknown Opening';
+function formatOpeningName(gameData,pgn){
+  var openMatch=pgn&&pgn.match(/\[Opening\s+"([^"]+)"\]/);
+  var variationMatch=pgn&&pgn.match(/\[Variation\s+"([^"]+)"\]/);
+  var ecoMatch=pgn&&pgn.match(/\[ECO\s+"([^"]+)"\]/);
+  if(openMatch){var named=openMatch[1];if(variationMatch&&named.toLowerCase().indexOf(variationMatch[1].toLowerCase())===-1)named+=': '+variationMatch[1];if(ecoMatch)named+=' ('+ecoMatch[1]+')';return named}
+  if(gameData&&gameData.eco){var slug=String(gameData.eco).split('/').filter(Boolean).pop()||'';var parts=slug.split('-');var ecoCode='';if(parts.length&&/^[a-e]\d{2}$/i.test(parts[0]))ecoCode=parts.shift().toUpperCase();var words=parts.map(function(part){return part.charAt(0).toUpperCase()+part.slice(1)}).join(' ');if(ecoCode&&words)return words+' ('+ecoCode+')';if(words)return words;if(ecoCode)return ecoCode}
+  if(ecoMatch)return ecoMatch[1];return 'Unknown Opening';
 }
 
-function detectPhase(board, moveNumber){
-  var nonPawnMaterial = 0;
-  for (var r = 0; r < 8; r++) {
-    for (var c = 0; c < 8; c++) {
-      var piece = board[r][c];
-      if (!piece || piece.type === 'p' || piece.type === 'k') continue;
-      if (piece.type === 'q') nonPawnMaterial += 9;
-      else if (piece.type === 'r') nonPawnMaterial += 5;
-      else nonPawnMaterial += 3;
-    }
-  }
-
-  if (moveNumber <= 10) return 'opening';
-  if (moveNumber >= 30 || nonPawnMaterial <= 20) return 'endgame';
+function detectPhase(board,moveNumber){
+  var nonPawnMaterial=0;
+  for(var r=0;r<8;r++)for(var cc=0;cc<8;cc++){var piece=board[r][cc];if(!piece||piece.type==='p'||piece.type==='k')continue;if(piece.type==='q')nonPawnMaterial+=9;else if(piece.type==='r')nonPawnMaterial+=5;else nonPawnMaterial+=3}
+  if(moveNumber<=10)return 'opening';
+  if(moveNumber>=30||nonPawnMaterial<=20)return 'endgame';
   return 'middlegame';
 }
 
 function classifyMoveLoss(lossCp){
-  if (lossCp >= 250) return 'blunder';
-  if (lossCp >= 100) return 'mistake';
-  if (lossCp >= 50) return 'inaccuracy';
+  if(lossCp>=250)return 'blunder';
+  if(lossCp>=100)return 'mistake';
+  if(lossCp>=50)return 'inaccuracy';
   return 'ok';
 }
 
-function addCoachMsg(text){
-  const el=document.getElementById('chat-msgs');if(!el)return;
-  const d=document.createElement('div');d.className='cmsg coach';d.textContent=text;el.appendChild(d);el.scrollTop=el.scrollHeight;
-}
-function sendChat(){
-  const inp=document.getElementById('chat-inp');if(!inp)return;
-  const txt=inp.value.trim();if(!txt)return;inp.value='';
-  const el=document.getElementById('chat-msgs');if(!el)return;
-  const d=document.createElement('div');d.className='cmsg user';d.textContent=txt;el.appendChild(d);el.scrollTop=el.scrollHeight;
-  const typing=document.getElementById('chat-typing');if(typing)typing.style.display='block';
-  setTimeout(()=>{
-    if(typing)typing.style.display='none';
-    const hist=game.history().slice(-4).join(', ')||'opening';
-    addCoachMsg('I see your position — recent moves: '+hist+'. Claude API connects in Step 10 for real AI analysis!');
-  },1200);
-}
-
-// ── ANALYSE GAMES ─────────────────────────────────────────────────────────
-async function analyseGames() {
-  var username = document.getElementById('chess-uname').value.trim();
-  if (!username) { alert('Please enter a Chess.com username first.'); return; }
-
-  var reportDiv = document.getElementById('a-results');
-  reportDiv.style.display = 'block';
-  reportDiv.innerHTML = '<p style="color:#aaa;"><span class="spin"></span>Fetching games... this may take 10-20 seconds.</p>';
-
-  var fetchedGames = [];
-
-  try {
-    var res = await fetch('https://chess-coach-production-86a2.up.railway.app/api/games/' + encodeURIComponent(username));
-    if (!res.ok) throw new Error('Server returned ' + res.status);
-    var data = await res.json();
-    fetchedGames = Array.isArray(data) ? data : (data.games || []);
-  } catch (err) {
-    reportDiv.innerHTML = '<p style="color:#ef5350;">Failed to fetch games: ' + err.message + '</p>';
-    return;
-  }
-
-  if (!fetchedGames.length) {
-    reportDiv.innerHTML = '<p style="color:orange;">No games found for this username.</p>';
-    return;
-  }
-
-  reportDiv.innerHTML = '<p style="color:#aaa;"><span class="spin"></span>Analysing ' + fetchedGames.length + ' games...</p>';
-
-  var openingStats  = {};
-  var blunderReport = [];
-  var totalBlunders = 0;
-  var totalMistakes = 0;
-  var phaseErrors   = { opening: 0, middlegame: 0, endgame: 0 };
-  var lossList      = ['checkmated','resigned','timeout','abandoned','lose'];
-
-  for (var gi = 0; gi < fetchedGames.length; gi++) {
-    var gdata     = fetchedGames[gi];
-    var pgn       = gdata.pgn;
-    if (!pgn) continue;
-
-    var wUser      = gdata.white ? (gdata.white.username || '') : '';
-    var playerColor = wUser.toLowerCase() === username.toLowerCase() ? 'white' : 'black';
-    var opponent    = playerColor === 'white'
-      ? (gdata.black ? gdata.black.username : 'Unknown')
-      : (gdata.white ? gdata.white.username : 'Unknown');
-
-    var result = 'draw';
-    var wRes   = gdata.white ? (gdata.white.result || '') : '';
-    var bRes   = gdata.black ? (gdata.black.result || '') : '';
-    if (playerColor === 'white') {
-      if (wRes === 'win') result = 'win';
-      else if (lossList.indexOf(wRes) >= 0) result = 'loss';
-    } else {
-      if (bRes === 'win') result = 'win';
-      else if (lossList.indexOf(bRes) >= 0) result = 'loss';
-    }
-
-    var ecoMatch  = pgn.match(/\[ECO\s+"([^"]+)"\]/);
-    var openMatch = pgn.match(/\[Opening\s+"([^"]+)"\]/);
-    var openingKey = 'Unknown Opening';
-    if (openMatch)      openingKey = openMatch[1];
-    else if (ecoMatch)  openingKey = ecoMatch[1];
-    else if (gdata.eco) openingKey = gdata.eco.split('/').pop().replace(/-/g, ' ');
-
-    if (!openingStats[openingKey]) {
-      openingStats[openingKey] = { wins: 0, losses: 0, draws: 0, total: 0 };
-    }
-    openingStats[openingKey].total++;
-    if      (result === 'win')  openingStats[openingKey].wins++;
-    else if (result === 'loss') openingStats[openingKey].losses++;
-    else                        openingStats[openingKey].draws++;
-
-    var gameBlunders  = 0;
-    var gameMistakes  = 0;
-    var gamePhaseErr  = { opening: 0, middlegame: 0, endgame: 0 };
-
-    try {
-      var tempChess = new Chess();
-      tempChess.load_pgn(pgn);
-      var history = tempChess.history({ verbose: true });
-
-      for (var mi = 0; mi < history.length; mi++) {
-        var moveNumber = Math.floor(mi / 2) + 1;
-        var phase = 'opening';
-        if (moveNumber > 10 && moveNumber <= 30) phase = 'middlegame';
-        if (moveNumber > 30) phase = 'endgame';
-
-        var isPlayerMove =
-          (playerColor === 'white' && mi % 2 === 0) ||
-          (playerColor === 'black' && mi % 2 === 1);
-
-        if (isPlayerMove) {
-          var moveStr = moveNumber + (mi % 2 === 0 ? '.' : '...');
-          var pgnPos  = pgn.indexOf(moveStr);
-          var snippet = pgnPos >= 0 ? pgn.substring(pgnPos, pgnPos + 80) : '';
-
-          if (snippet.indexOf('??') >= 0) {
-            gameBlunders++;
-            gamePhaseErr[phase]++;
-          } else if (snippet.indexOf('?!') === -1 && snippet.indexOf('?') >= 0) {
-            gameMistakes++;
-            gamePhaseErr[phase]++;
-          }
-        }
-      }
-    } catch (parseErr) {
-      console.warn('Could not parse game ' + gi + ': ' + parseErr.message);
-    }
-
-    totalBlunders += gameBlunders;
-    totalMistakes += gameMistakes;
-    phaseErrors.opening    += gamePhaseErr.opening;
-    phaseErrors.middlegame += gamePhaseErr.middlegame;
-    phaseErrors.endgame    += gamePhaseErr.endgame;
-
-    if (gameBlunders > 0) {
-      var opMatch = pgn.match(/\[Opening\s+"([^"]+)"\]/);
-      blunderReport.push({
-        gameIndex : gi + 1,
-        opponent  : opponent,
-        color     : playerColor,
-        blunders  : gameBlunders,
-        mistakes  : gameMistakes,
-        result    : result,
-        opening   : opMatch ? opMatch[1] : 'Unknown'
-      });
-    }
-  }
-
-  var phaseEntries = Object.entries(phaseErrors).sort(function(a,b){ return b[1]-a[1]; });
-  var worstPhase   = phaseEntries[0][0];
-
-  var worstOpenings = Object.entries(openingStats)
-    .filter(function(e){ return e[1].total >= 2; })
-    .map(function(e){
-      return { name: e[0], winRate: e[1].wins/e[1].total, total: e[1].total,
-               wins: e[1].wins, losses: e[1].losses, draws: e[1].draws };
-    })
-    .sort(function(a,b){ return a.winRate - b.winRate; })
-    .slice(0, 5);
-
-  var topBlunderGames = blunderReport
-    .slice().sort(function(a,b){ return b.blunders - a.blunders; }).slice(0, 5);
-
-  var phaseEmoji = { opening: '&#9823;', middlegame: '&#9876;', endgame: '&#127937;' };
-  var phaseName  = function(p){ return p.charAt(0).toUpperCase() + p.slice(1); };
-
-  var html = '<div style="font-family:\'DM Sans\',sans-serif;color:var(--text);max-width:680px;">'
-    + '<h2 style="font-family:\'Playfair Display\',serif;color:var(--gold);margin-bottom:4px;">Weakness Report</h2>'
-    + '<p style="color:var(--text2);margin-bottom:20px;">Analysed <strong style="color:var(--text);">' + fetchedGames.length + '</strong> games for <strong style="color:#4fc3f7;">' + username + '</strong></p>'
-
-    + '<div style="background:var(--bg2);border:1px solid var(--border);border-radius:8px;padding:16px;margin-bottom:16px;">'
-    + '<div style="font-size:9px;letter-spacing:2px;text-transform:uppercase;color:var(--text3);font-weight:700;margin-bottom:12px;">OVERALL ERRORS</div>'
-    + '<div style="display:flex;gap:12px;">'
-    + '<div style="flex:1;text-align:center;padding:12px;background:var(--bg3);border-radius:6px;">'
-    + '<div style="font-size:28px;font-weight:700;color:#ef5350;">' + totalBlunders + '</div>'
-    + '<div style="font-size:11px;color:var(--text2);margin-top:2px;">Blunders (??)</div></div>'
-    + '<div style="flex:1;text-align:center;padding:12px;background:var(--bg3);border-radius:6px;">'
-    + '<div style="font-size:28px;font-weight:700;color:#ffa726;">' + totalMistakes + '</div>'
-    + '<div style="font-size:11px;color:var(--text2);margin-top:2px;">Mistakes (?)</div></div>'
-    + '<div style="flex:1;text-align:center;padding:12px;background:var(--bg3);border-radius:6px;">'
-    + '<div style="font-size:28px;font-weight:700;color:var(--text);">' + (totalBlunders/fetchedGames.length).toFixed(2) + '</div>'
-    + '<div style="font-size:11px;color:var(--text2);margin-top:2px;">Avg Blunders/Game</div></div>'
-    + '</div></div>'
-
-    + '<div style="background:var(--bg2);border:1px solid var(--border);border-radius:8px;padding:16px;margin-bottom:16px;">'
-    + '<div style="font-size:9px;letter-spacing:2px;text-transform:uppercase;color:var(--text3);font-weight:700;margin-bottom:12px;">ERRORS BY PHASE</div>'
-    + '<div style="display:flex;gap:10px;">';
-
-  Object.entries(phaseErrors).forEach(function(entry){
-    var ph = entry[0]; var cnt = entry[1];
-    var isWorst = ph === worstPhase;
-    html += '<div style="flex:1;background:' + (isWorst?'rgba(239,83,80,.08)':'var(--bg3)') + ';'
-      + 'border:1px solid ' + (isWorst?'rgba(239,83,80,.4)':'var(--border)') + ';'
-      + 'border-radius:8px;padding:12px;text-align:center;">'
-      + '<div style="font-size:11px;font-weight:600;color:' + (isWorst?'#ef5350':'var(--text2)') + ';margin-bottom:6px;">' + phaseName(ph) + (isWorst?' ★':'') + '</div>'
-      + '<div style="font-size:26px;font-weight:700;color:' + (isWorst?'#ef5350':'var(--text)') + ';">' + cnt + '</div>'
-      + '<div style="font-size:10px;color:var(--text3);margin-top:2px;">errors</div></div>';
-  });
-
-  html += '</div></div>';
-
-  if (worstOpenings.length > 0) {
-    html += '<div style="background:var(--bg2);border:1px solid var(--border);border-radius:8px;padding:16px;margin-bottom:16px;">'
-      + '<div style="font-size:9px;letter-spacing:2px;text-transform:uppercase;color:var(--text3);font-weight:700;margin-bottom:12px;">WORST OPENINGS (WIN RATE)</div>'
-      + '<table style="width:100%;border-collapse:collapse;font-size:12px;">'
-      + '<thead><tr style="color:var(--text3);">'
-      + '<th style="padding:6px 8px;text-align:left;border-bottom:1px solid var(--border);">Opening</th>'
-      + '<th style="padding:6px 8px;text-align:center;border-bottom:1px solid var(--border);">G</th>'
-      + '<th style="padding:6px 8px;text-align:center;border-bottom:1px solid var(--border);">W</th>'
-      + '<th style="padding:6px 8px;text-align:center;border-bottom:1px solid var(--border);">L</th>'
-      + '<th style="padding:6px 8px;text-align:center;border-bottom:1px solid var(--border);">D</th>'
-      + '<th style="padding:6px 8px;text-align:center;border-bottom:1px solid var(--border);">Win%</th>'
-      + '</tr></thead><tbody>';
-    worstOpenings.forEach(function(o){
-      var wr  = (o.winRate*100).toFixed(0);
-      var col = o.winRate < 0.3 ? '#ef5350' : o.winRate < 0.5 ? '#ffa726' : '#66bb6a';
-      html += '<tr style="border-bottom:1px solid var(--border);">'
-        + '<td style="padding:8px;color:var(--text);">' + o.name + '</td>'
-        + '<td style="padding:8px;text-align:center;color:var(--text2);">' + o.total + '</td>'
-        + '<td style="padding:8px;text-align:center;color:#66bb6a;">' + o.wins + '</td>'
-        + '<td style="padding:8px;text-align:center;color:#ef5350;">' + o.losses + '</td>'
-        + '<td style="padding:8px;text-align:center;color:var(--text3);">' + o.draws + '</td>'
-        + '<td style="padding:8px;text-align:center;font-weight:700;color:' + col + ';">' + wr + '%</td>'
-        + '</tr>';
-    });
-    html += '</tbody></table></div>';
-  }
-
-  if (topBlunderGames.length > 0) {
-    html += '<div style="background:var(--bg2);border:1px solid var(--border);border-radius:8px;padding:16px;margin-bottom:16px;">'
-      + '<div style="font-size:9px;letter-spacing:2px;text-transform:uppercase;color:var(--text3);font-weight:700;margin-bottom:12px;">GAMES WITH MOST BLUNDERS</div>'
-      + '<table style="width:100%;border-collapse:collapse;font-size:12px;">'
-      + '<thead><tr style="color:var(--text3);">'
-      + '<th style="padding:6px 8px;text-align:left;border-bottom:1px solid var(--border);">Opponent</th>'
-      + '<th style="padding:6px 8px;text-align:left;border-bottom:1px solid var(--border);">Opening</th>'
-      + '<th style="padding:6px 8px;text-align:center;border-bottom:1px solid var(--border);">Color</th>'
-      + '<th style="padding:6px 8px;text-align:center;border-bottom:1px solid var(--border);">Result</th>'
-      + '<th style="padding:6px 8px;text-align:center;border-bottom:1px solid var(--border);">??</th>'
-      + '</tr></thead><tbody>';
-    topBlunderGames.forEach(function(g){
-      var rc = g.result==='win'?'#66bb6a':g.result==='loss'?'#ef5350':'var(--text3)';
-      html += '<tr style="border-bottom:1px solid var(--border);">'
-        + '<td style="padding:8px;color:var(--text);">' + g.opponent + '</td>'
-        + '<td style="padding:8px;color:var(--text2);font-size:11px;">' + g.opening + '</td>'
-        + '<td style="padding:8px;text-align:center;color:var(--text2);">' + (g.color==='white'?'White':'Black') + '</td>'
-        + '<td style="padding:8px;text-align:center;font-weight:600;color:' + rc + ';">' + g.result.toUpperCase() + '</td>'
-        + '<td style="padding:8px;text-align:center;font-weight:700;color:#ef5350;">' + g.blunders + '</td>'
-        + '</tr>';
-    });
-    html += '</tbody></table></div>';
-  }
-
-  var tips = {
-    opening    : 'Your opening phase needs work. Focus on the basics: control the center (e4/d4), develop knights before bishops, and castle early to keep your king safe.',
-    middlegame : 'You make the most errors in the middlegame. Before every move, ask yourself: Is any of my pieces hanging? What is my opponent threatening?',
-    endgame    : 'Endgames are your biggest weakness. Practice King + Pawn vs King positions. Remember: activate your king — it becomes a powerful piece in the endgame.'
-  };
-
-  html += '<div style="background:rgba(79,195,247,.06);border-left:3px solid #4fc3f7;border-radius:0 6px 6px 0;padding:14px 16px;">'
-    + '<div style="font-size:10px;letter-spacing:1px;text-transform:uppercase;color:#4fc3f7;font-weight:700;margin-bottom:6px;">COACH TIP</div>'
-    + '<div style="font-size:13px;color:var(--text2);line-height:1.7;">' + tips[worstPhase] + '</div>'
-    + '</div></div>';
-
-  reportDiv.innerHTML = html;
-}
-
-async function analyseGamesEnhanced() {
-  var username = document.getElementById('chess-uname').value.trim();
-  if (!username) { alert('Please enter a Chess.com username first.'); return; }
-
-  var reportDiv = document.getElementById('a-results');
-  reportDiv.style.display = 'block';
-  reportDiv.innerHTML = '<p style="color:#aaa;"><span class="spin"></span>Fetching games... this may take 10-20 seconds.</p>';
-
-  var fetchedGames = [];
-  try {
-    var res = await fetch('https://chess-coach-production-86a2.up.railway.app/api/games/' + encodeURIComponent(username));
-    if (!res.ok) throw new Error('Server returned ' + res.status);
-    var data = await res.json();
-    fetchedGames = Array.isArray(data) ? data : (data.games || []);
-  } catch (err) {
-    reportDiv.innerHTML = '<p style="color:#ef5350;">Failed to fetch games: ' + err.message + '</p>';
-    return;
-  }
-
-  if (!fetchedGames.length) {
-    reportDiv.innerHTML = '<p style="color:orange;">No games found for this username.</p>';
-    return;
-  }
-
-  var maxGamesToEngine = Math.min(fetchedGames.length, 12);
-  var analysisGames = fetchedGames.slice(-maxGamesToEngine);
-  var openingStats = {};
-  var reviewGames = [];
-  var totalBlunders = 0;
-  var totalMistakes = 0;
-  var totalInaccuracies = 0;
-  var totalMovesReviewed = 0;
-  var totalLossCp = 0;
-  var phaseErrors = {
-    opening: { blunder: 0, mistake: 0, inaccuracy: 0 },
-    middlegame: { blunder: 0, mistake: 0, inaccuracy: 0 },
-    endgame: { blunder: 0, mistake: 0, inaccuracy: 0 }
-  };
-  var resultStats = { win: 0, loss: 0, draw: 0 };
-  var accuracyBuckets = [];
-  var lossList = ['checkmated','resigned','timeout','abandoned','lose'];
-
-  reportDiv.innerHTML = '<p style="color:#aaa;"><span class="spin"></span>Running engine analysis on your last ' + analysisGames.length + ' games...</p>';
-
+async function analyseGamesEnhanced(){
+  var username=document.getElementById('chess-uname').value.trim();
+  if(!username){alert('Please enter a Chess.com username first.');return}
+  var reportDiv=document.getElementById('a-results');
+  reportDiv.style.display='block';
+  reportDiv.innerHTML='<p style="color:#aaa;"><span class="spin"></span>Fetching games... this may take 10-20 seconds.</p>';
+  var fetchedGames=[];
+  try{
+    var res=await fetch('https://chess-coach-production-86a2.up.railway.app/api/games/'+encodeURIComponent(username));
+    if(!res.ok)throw new Error('Server returned '+res.status);
+    var data=await res.json();
+    fetchedGames=Array.isArray(data)?data:(data.games||[]);
+  }catch(err){reportDiv.innerHTML='<p style="color:#ef5350;">Failed to fetch games: '+err.message+'</p>';return}
+  if(!fetchedGames.length){reportDiv.innerHTML='<p style="color:orange;">No games found for this username.</p>';return}
+  var maxGamesToEngine=Math.min(fetchedGames.length,12);
+  var analysisGames=fetchedGames.slice(-maxGamesToEngine);
+  var openingStats={},reviewGames=[],totalBlunders=0,totalMistakes=0,totalInaccuracies=0,totalMovesReviewed=0,totalLossCp=0;
+  var phaseErrors={opening:{blunder:0,mistake:0,inaccuracy:0},middlegame:{blunder:0,mistake:0,inaccuracy:0},endgame:{blunder:0,mistake:0,inaccuracy:0}};
+  var resultStats={win:0,loss:0,draw:0};
+  var accuracyBuckets=[];
+  var lossList=['checkmated','resigned','timeout','abandoned','lose'];
+  reportDiv.innerHTML='<p style="color:#aaa;"><span class="spin"></span>Running engine analysis on your last '+analysisGames.length+' games...</p>';
   var worker;
-  try {
-    worker = await createAnalysisWorker();
-  } catch (engineErr) {
-    reportDiv.innerHTML = '<p style="color:#ef5350;">Engine could not start: ' + engineErr.message + '</p>';
-    return;
-  }
-
-  try {
-    for (var gi = 0; gi < analysisGames.length; gi++) {
-      var gdata = analysisGames[gi];
-      var pgn = gdata.pgn;
-      if (!pgn) continue;
-
-      reportDiv.innerHTML = '<p style="color:#aaa;"><span class="spin"></span>Analysing game ' + (gi + 1) + ' of ' + analysisGames.length + '...</p>';
-
-      var wUser = gdata.white ? (gdata.white.username || '') : '';
-      var playerColor = wUser.toLowerCase() === username.toLowerCase() ? 'white' : 'black';
-      var opponent = playerColor === 'white'
-        ? (gdata.black ? gdata.black.username : 'Unknown')
-        : (gdata.white ? gdata.white.username : 'Unknown');
-
-      var result = 'draw';
-      var wRes = gdata.white ? (gdata.white.result || '') : '';
-      var bRes = gdata.black ? (gdata.black.result || '') : '';
-      if (playerColor === 'white') {
-        if (wRes === 'win') result = 'win';
-        else if (lossList.indexOf(wRes) >= 0) result = 'loss';
-      } else {
-        if (bRes === 'win') result = 'win';
-        else if (lossList.indexOf(bRes) >= 0) result = 'loss';
-      }
+  try{worker=await createAnalysisWorker()}catch(engineErr){reportDiv.innerHTML='<p style="color:#ef5350;">Engine could not start: '+engineErr.message+'</p>';return}
+  try{
+    for(var gi=0;gi<analysisGames.length;gi++){
+      var gdata=analysisGames[gi];var pgn=gdata.pgn;if(!pgn)continue;
+      reportDiv.innerHTML='<p style="color:#aaa;"><span class="spin"></span>Analysing game '+(gi+1)+' of '+analysisGames.length+'...</p>';
+      var wUser=gdata.white?(gdata.white.username||')':'';
+      var playerColor=wUser.toLowerCase()===username.toLowerCase()?'white':'black';
+      var opponent=playerColor==='white'?(gdata.black?gdata.black.username:'Unknown'):(gdata.white?gdata.white.username:'Unknown');
+      var result='draw';
+      var wRes=gdata.white?(gdata.white.result||''):'';
+      var bRes=gdata.black?(gdata.black.result||''):'';
+      if(playerColor==='white'){if(wRes==='win')result='win';else if(lossList.indexOf(wRes)>=0)result='loss'}
+      else{if(bRes==='win')result='win';else if(lossList.indexOf(bRes)>=0)result='loss'}
       resultStats[result]++;
-
-      var openingKey = formatOpeningName(gdata, pgn);
-      if (!openingStats[openingKey]) {
-        openingStats[openingKey] = { wins: 0, losses: 0, draws: 0, total: 0, blunders: 0, lossCp: 0, reviewedMoves: 0 };
-      }
+      var openingKey=formatOpeningName(gdata,pgn);
+      if(!openingStats[openingKey])openingStats[openingKey]={wins:0,losses:0,draws:0,total:0,blunders:0,lossCp:0,reviewedMoves:0};
       openingStats[openingKey].total++;
-      if (result === 'win') openingStats[openingKey].wins++;
-      else if (result === 'loss') openingStats[openingKey].losses++;
+      if(result==='win')openingStats[openingKey].wins++;
+      else if(result==='loss')openingStats[openingKey].losses++;
       else openingStats[openingKey].draws++;
-
-      var gameBlunders = 0;
-      var gameMistakes = 0;
-      var gameInaccuracies = 0;
-      var gameMovesReviewed = 0;
-      var gameLossCp = 0;
-      var worstMove = null;
-
-      try {
-        var tempChess = new Chess();
-        tempChess.load_pgn(pgn);
-        var history = tempChess.history({ verbose: true });
-        var replay = new Chess();
-
-        for (var mi = 0; mi < history.length; mi++) {
-          var move = history[mi];
-          var isPlayerMove =
-            (playerColor === 'white' && mi % 2 === 0) ||
-            (playerColor === 'black' && mi % 2 === 1);
-
-          if (!isPlayerMove) {
-            replay.move(move);
-            continue;
-          }
-
-          var moveNumber = Math.floor(mi / 2) + 1;
-          var phase = detectPhase(replay.board(), moveNumber);
-          var beforeScore = await evaluateFen(worker, replay.fen(), playerColor, 120);
+      var gameBlunders=0,gameMistakes=0,gameInaccuracies=0,gameMovesReviewed=0,gameLossCp=0,worstMove=null;
+      try{
+        var tempChess=new Chess();tempChess.load_pgn(pgn);
+        var history=tempChess.history({verbose:true});
+        var replay=new Chess();
+        for(var mi=0;mi<history.length;mi++){
+          var move=history[mi];
+          var isPlayerMove=(playerColor==='white'&&mi%2===0)||(playerColor==='black'&&mi%2===1);
+          if(!isPlayerMove){replay.move(move);continue}
+          var moveNumber=Math.floor(mi/2)+1;
+          var phase=detectPhase(replay.board(),moveNumber);
+          var beforeScore=await evaluateFen(worker,replay.fen(),playerColor,120);
           replay.move(move);
-          var afterScore = await evaluateFen(worker, replay.fen(), playerColor, 120);
-          var lossCp = Math.max(0, Math.round(beforeScore - afterScore));
-          var classification = classifyMoveLoss(lossCp);
-
-          totalMovesReviewed++;
-          gameMovesReviewed++;
-          totalLossCp += lossCp;
-          gameLossCp += lossCp;
-          openingStats[openingKey].lossCp += lossCp;
-          openingStats[openingKey].reviewedMoves++;
-
-          if (classification === 'blunder') {
-            totalBlunders++;
-            gameBlunders++;
-            phaseErrors[phase].blunder++;
-            openingStats[openingKey].blunders++;
-          } else if (classification === 'mistake') {
-            totalMistakes++;
-            gameMistakes++;
-            phaseErrors[phase].mistake++;
-          } else if (classification === 'inaccuracy') {
-            totalInaccuracies++;
-            gameInaccuracies++;
-            phaseErrors[phase].inaccuracy++;
-          }
-
-          if (!worstMove || lossCp > worstMove.lossCp) {
-            worstMove = { san: move.san, moveNumber: moveNumber, phase: phase, lossCp: lossCp };
-          }
+          var afterScore=await evaluateFen(worker,replay.fen(),playerColor,120);
+          var lossCp=Math.max(0,Math.round(beforeScore-afterScore));
+          var classification=classifyMoveLoss(lossCp);
+          totalMovesReviewed++;gameMovesReviewed++;totalLossCp+=lossCp;gameLossCp+=lossCp;
+          openingStats[openingKey].lossCp+=lossCp;openingStats[openingKey].reviewedMoves++;
+          if(classification==='blunder'){totalBlunders++;gameBlunders++;phaseErrors[phase].blunder++;openingStats[openingKey].blunders++}
+          else if(classification==='mistake'){totalMistakes++;gameMistakes++;phaseErrors[phase].mistake++}
+          else if(classification==='inaccuracy'){totalInaccuracies++;gameInaccuracies++;phaseErrors[phase].inaccuracy++}
+          if(!worstMove||lossCp>worstMove.lossCp)worstMove={san:move.san,moveNumber:moveNumber,phase:phase,lossCp:lossCp};
         }
-      } catch (parseErr) {
-        console.warn('Could not analyse game ' + gi + ': ' + parseErr.message);
-      }
-
-      var gameAccuracy = gameMovesReviewed ? Math.max(0, 100 - (gameLossCp / gameMovesReviewed) / 12) : 100;
+      }catch(parseErr){console.warn('Could not analyse game '+gi+': '+parseErr.message)}
+      var gameAccuracy=gameMovesReviewed?Math.max(0,100-(gameLossCp/gameMovesReviewed)/12):100;
       accuracyBuckets.push(gameAccuracy);
-
-      if (gameBlunders + gameMistakes + gameInaccuracies > 0 || worstMove) {
-        reviewGames.push({
-          opponent: opponent,
-          opening: openingKey,
-          result: result,
-          blunders: gameBlunders,
-          mistakes: gameMistakes,
-          inaccuracies: gameInaccuracies,
-          accuracy: gameAccuracy,
-          worstMove: worstMove
-        });
-      }
+      if(gameBlunders+gameMistakes+gameInaccuracies>0||worstMove)reviewGames.push({opponent:opponent,opening:openingKey,result:result,blunders:gameBlunders,mistakes:gameMistakes,inaccuracies:gameInaccuracies,accuracy:gameAccuracy,worstMove:worstMove});
     }
-  } finally {
-    try { worker.terminate(); } catch (_) {}
-  }
+  }finally{try{worker.terminate()}catch(_){}}
 
-  var phaseTotals = {
-    opening: phaseErrors.opening.blunder + phaseErrors.opening.mistake + phaseErrors.opening.inaccuracy,
-    middlegame: phaseErrors.middlegame.blunder + phaseErrors.middlegame.mistake + phaseErrors.middlegame.inaccuracy,
-    endgame: phaseErrors.endgame.blunder + phaseErrors.endgame.mistake + phaseErrors.endgame.inaccuracy
-  };
-  var weightedPhases = Object.entries(phaseErrors).map(function(entry){
-    return [entry[0], entry[1].blunder * 3 + entry[1].mistake * 2 + entry[1].inaccuracy];
-  }).sort(function(a,b){ return b[1] - a[1]; });
-  var worstPhase = weightedPhases.length ? weightedPhases[0][0] : 'middlegame';
+  var phaseTotals={opening:phaseErrors.opening.blunder+phaseErrors.opening.mistake+phaseErrors.opening.inaccuracy,middlegame:phaseErrors.middlegame.blunder+phaseErrors.middlegame.mistake+phaseErrors.middlegame.inaccuracy,endgame:phaseErrors.endgame.blunder+phaseErrors.endgame.mistake+phaseErrors.endgame.inaccuracy};
+  var weightedPhases=Object.entries(phaseErrors).map(function(entry){return[entry[0],entry[1].blunder*3+entry[1].mistake*2+entry[1].inaccuracy]}).sort(function(a,b){return b[1]-a[1]});
+  var worstPhase=weightedPhases.length?weightedPhases[0][0]:'middlegame';
+  var openingInsights=Object.entries(openingStats).filter(function(entry){return entry[1].total>=2}).map(function(entry){var stats=entry[1];return{name:entry[0],total:stats.total,winRate:stats.total?stats.wins/stats.total:0,blunders:stats.blunders,avgLoss:stats.reviewedMoves?stats.lossCp/stats.reviewedMoves:0}}).sort(function(a,b){if(b.blunders!==a.blunders)return b.blunders-a.blunders;if(b.avgLoss!==a.avgLoss)return b.avgLoss-a.avgLoss;return a.winRate-b.winRate}).slice(0,5);
+  var topReviewGames=reviewGames.slice().sort(function(a,b){if(b.blunders!==a.blunders)return b.blunders-a.blunders;if(b.mistakes!==a.mistakes)return b.mistakes-a.mistakes;return a.accuracy-b.accuracy}).slice(0,5);
+  var avgAccuracy=accuracyBuckets.length?accuracyBuckets.reduce(function(sum,value){return sum+value},0)/accuracyBuckets.length:100;
+  var avgLossPerMove=totalMovesReviewed?totalLossCp/totalMovesReviewed:0;
+  var splitIndex=Math.floor(accuracyBuckets.length/2);
+  var firstHalf=splitIndex?accuracyBuckets.slice(0,splitIndex):accuracyBuckets;
+  var secondHalf=splitIndex?accuracyBuckets.slice(splitIndex):accuracyBuckets;
+  var firstAvg=firstHalf.length?firstHalf.reduce(function(sum,value){return sum+value},0)/firstHalf.length:avgAccuracy;
+  var secondAvg=secondHalf.length?secondHalf.reduce(function(sum,value){return sum+value},0)/secondHalf.length:avgAccuracy;
+  var recentTrend=secondAvg-firstAvg;
+  var phaseName=function(p){return p.charAt(0).toUpperCase()+p.slice(1)};
 
-  var openingInsights = Object.entries(openingStats)
-    .filter(function(entry){ return entry[1].total >= 2; })
-    .map(function(entry){
-      var stats = entry[1];
-      return {
-        name: entry[0],
-        total: stats.total,
-        winRate: stats.total ? stats.wins / stats.total : 0,
-        blunders: stats.blunders,
-        avgLoss: stats.reviewedMoves ? stats.lossCp / stats.reviewedMoves : 0
-      };
-    })
-    .sort(function(a,b){
-      if (b.blunders !== a.blunders) return b.blunders - a.blunders;
-      if (b.avgLoss !== a.avgLoss) return b.avgLoss - a.avgLoss;
-      return a.winRate - b.winRate;
-    })
-    .slice(0, 5);
+  var html='<div style="font-family:\'DM Sans\',sans-serif;color:var(--text);max-width:760px;">'
+    +'<h2 style="font-family:\'Playfair Display\',serif;color:var(--gold);margin-bottom:4px;">Analysis Report</h2>'
+    +'<p style="color:var(--text2);margin-bottom:20px;">Fetched <strong style="color:var(--text);">'+fetchedGames.length+'</strong> recent games and engine-analysed the latest <strong style="color:var(--text);">'+analysisGames.length+'</strong> for <strong style="color:#4fc3f7;">'+username+'</strong>.</p>'
+    +'<div style="background:var(--bg2);border:1px solid var(--border);border-radius:8px;padding:16px;margin-bottom:16px;">'
+    +'<div style="font-size:9px;letter-spacing:2px;text-transform:uppercase;color:var(--text3);font-weight:700;margin-bottom:12px;">Performance Snapshot</div>'
+    +'<div style="display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px;">'
+    +'<div style="text-align:center;padding:12px;background:var(--bg3);border-radius:6px;"><div style="font-size:28px;font-weight:700;color:#ef5350;">'+totalBlunders+'</div><div style="font-size:11px;color:var(--text2);margin-top:2px;">Blunders</div></div>'
+    +'<div style="text-align:center;padding:12px;background:var(--bg3);border-radius:6px;"><div style="font-size:28px;font-weight:700;color:#ffa726;">'+totalMistakes+'</div><div style="font-size:11px;color:var(--text2);margin-top:2px;">Mistakes</div></div>'
+    +'<div style="text-align:center;padding:12px;background:var(--bg3);border-radius:6px;"><div style="font-size:28px;font-weight:700;color:#29b6f6;">'+totalInaccuracies+'</div><div style="font-size:11px;color:var(--text2);margin-top:2px;">Inaccuracies</div></div>'
+    +'<div style="text-align:center;padding:12px;background:var(--bg3);border-radius:6px;"><div style="font-size:28px;font-weight:700;color:var(--text);">'+avgAccuracy.toFixed(1)+'%</div><div style="font-size:11px;color:var(--text2);margin-top:2px;">Estimated Accuracy</div></div>'
+    +'</div>'
+    +'<div style="display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;margin-top:12px;">'
+    +'<div style="padding:12px;background:var(--bg3);border-radius:6px;text-align:center;"><div style="font-size:22px;font-weight:700;color:var(--text);">'+avgLossPerMove.toFixed(0)+'</div><div style="font-size:11px;color:var(--text2);margin-top:2px;">Avg centipawn loss</div></div>'
+    +'<div style="padding:12px;background:var(--bg3);border-radius:6px;text-align:center;"><div style="font-size:22px;font-weight:700;color:'+(recentTrend>=0?'#66bb6a':'#ef5350')+'">'+(recentTrend>=0?'+':'')+recentTrend.toFixed(1)+'%</div><div style="font-size:11px;color:var(--text2);margin-top:2px;">Recent trend</div></div>'
+    +'<div style="padding:12px;background:var(--bg3);border-radius:6px;text-align:center;"><div style="font-size:22px;font-weight:700;color:var(--text);">'+resultStats.win+'-'+resultStats.loss+'-'+resultStats.draw+'</div><div style="font-size:11px;color:var(--text2);margin-top:2px;">W-L-D</div></div>'
+    +'</div></div>';
 
-  var topReviewGames = reviewGames.slice().sort(function(a,b){
-    if (b.blunders !== a.blunders) return b.blunders - a.blunders;
-    if (b.mistakes !== a.mistakes) return b.mistakes - a.mistakes;
-    return a.accuracy - b.accuracy;
-  }).slice(0, 5);
-
-  var avgAccuracy = accuracyBuckets.length
-    ? accuracyBuckets.reduce(function(sum, value){ return sum + value; }, 0) / accuracyBuckets.length
-    : 100;
-  var avgLossPerMove = totalMovesReviewed ? totalLossCp / totalMovesReviewed : 0;
-  var splitIndex = Math.floor(accuracyBuckets.length / 2);
-  var firstHalf = splitIndex ? accuracyBuckets.slice(0, splitIndex) : accuracyBuckets;
-  var secondHalf = splitIndex ? accuracyBuckets.slice(splitIndex) : accuracyBuckets;
-  var firstAvg = firstHalf.length ? firstHalf.reduce(function(sum, value){ return sum + value; }, 0) / firstHalf.length : avgAccuracy;
-  var secondAvg = secondHalf.length ? secondHalf.reduce(function(sum, value){ return sum + value; }, 0) / secondHalf.length : avgAccuracy;
-  var recentTrend = secondAvg - firstAvg;
-  var phaseName = function(p){ return p.charAt(0).toUpperCase() + p.slice(1); };
-
-  var html = '<div style="font-family:\'DM Sans\',sans-serif;color:var(--text);max-width:760px;">'
-    + '<h2 style="font-family:\'Playfair Display\',serif;color:var(--gold);margin-bottom:4px;">Analysis Report</h2>'
-    + '<p style="color:var(--text2);margin-bottom:20px;">Fetched <strong style="color:var(--text);">' + fetchedGames.length + '</strong> recent games and engine-analysed the latest <strong style="color:var(--text);">' + analysisGames.length + '</strong> for <strong style="color:#4fc3f7;">' + username + '</strong>.</p>'
-    + '<div style="background:var(--bg2);border:1px solid var(--border);border-radius:8px;padding:16px;margin-bottom:16px;">'
-    + '<div style="font-size:9px;letter-spacing:2px;text-transform:uppercase;color:var(--text3);font-weight:700;margin-bottom:12px;">Performance Snapshot</div>'
-    + '<div style="display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px;">'
-    + '<div style="text-align:center;padding:12px;background:var(--bg3);border-radius:6px;"><div style="font-size:28px;font-weight:700;color:#ef5350;">' + totalBlunders + '</div><div style="font-size:11px;color:var(--text2);margin-top:2px;">Blunders</div></div>'
-    + '<div style="text-align:center;padding:12px;background:var(--bg3);border-radius:6px;"><div style="font-size:28px;font-weight:700;color:#ffa726;">' + totalMistakes + '</div><div style="font-size:11px;color:var(--text2);margin-top:2px;">Mistakes</div></div>'
-    + '<div style="text-align:center;padding:12px;background:var(--bg3);border-radius:6px;"><div style="font-size:28px;font-weight:700;color:#29b6f6;">' + totalInaccuracies + '</div><div style="font-size:11px;color:var(--text2);margin-top:2px;">Inaccuracies</div></div>'
-    + '<div style="text-align:center;padding:12px;background:var(--bg3);border-radius:6px;"><div style="font-size:28px;font-weight:700;color:var(--text);">' + avgAccuracy.toFixed(1) + '%</div><div style="font-size:11px;color:var(--text2);margin-top:2px;">Estimated Accuracy</div></div>'
-    + '</div>'
-    + '<div style="display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;margin-top:12px;">'
-    + '<div style="padding:12px;background:var(--bg3);border-radius:6px;text-align:center;"><div style="font-size:22px;font-weight:700;color:var(--text);">' + avgLossPerMove.toFixed(0) + '</div><div style="font-size:11px;color:var(--text2);margin-top:2px;">Average centipawn loss</div></div>'
-    + '<div style="padding:12px;background:var(--bg3);border-radius:6px;text-align:center;"><div style="font-size:22px;font-weight:700;color:' + (recentTrend >= 0 ? '#66bb6a' : '#ef5350') + ';">' + (recentTrend >= 0 ? '+' : '') + recentTrend.toFixed(1) + '%</div><div style="font-size:11px;color:var(--text2);margin-top:2px;">Recent trend</div></div>'
-    + '<div style="padding:12px;background:var(--bg3);border-radius:6px;text-align:center;"><div style="font-size:22px;font-weight:700;color:var(--text);">' + resultStats.win + '-' + resultStats.loss + '-' + resultStats.draw + '</div><div style="font-size:11px;color:var(--text2);margin-top:2px;">W-L-D</div></div>'
-    + '</div></div>';
-
-  html += '<div style="background:var(--bg2);border:1px solid var(--border);border-radius:8px;padding:16px;margin-bottom:16px;">'
-    + '<div style="font-size:9px;letter-spacing:2px;text-transform:uppercase;color:var(--text3);font-weight:700;margin-bottom:12px;">Errors By Phase</div>'
-    + '<div style="display:flex;gap:10px;">';
-
+  html+='<div style="background:var(--bg2);border:1px solid var(--border);border-radius:8px;padding:16px;margin-bottom:16px;">'
+    +'<div style="font-size:9px;letter-spacing:2px;text-transform:uppercase;color:var(--text3);font-weight:700;margin-bottom:12px;">Errors By Phase</div>'
+    +'<div style="display:flex;gap:10px;">';
   Object.keys(phaseErrors).forEach(function(ph){
-    var isWorst = ph === worstPhase;
-    html += '<div style="flex:1;background:' + (isWorst ? 'rgba(239,83,80,.08)' : 'var(--bg3)') + ';border:1px solid ' + (isWorst ? 'rgba(239,83,80,.4)' : 'var(--border)') + ';border-radius:8px;padding:12px;text-align:center;">'
-      + '<div style="font-size:11px;font-weight:600;color:' + (isWorst ? '#ef5350' : 'var(--text2)') + ';margin-bottom:6px;">' + phaseName(ph) + (isWorst ? ' *' : '') + '</div>'
-      + '<div style="font-size:26px;font-weight:700;color:' + (isWorst ? '#ef5350' : 'var(--text)') + ';">' + phaseTotals[ph] + '</div>'
-      + '<div style="font-size:10px;color:var(--text3);margin-top:2px;">' + phaseErrors[ph].blunder + 'B / ' + phaseErrors[ph].mistake + 'M / ' + phaseErrors[ph].inaccuracy + 'I</div></div>';
+    var isWorst=ph===worstPhase;
+    html+='<div style="flex:1;background:'+(isWorst?'rgba(239,83,80,.08)':'var(--bg3)')+';border:1px solid '+(isWorst?'rgba(239,83,80,.4)':'var(--border)')+';border-radius:8px;padding:12px;text-align:center;">'
+      +'<div style="font-size:11px;font-weight:600;color:'+(isWorst?'#ef5350':'var(--text2)')+';margin-bottom:6px;">'+phaseName(ph)+(isWorst?' *':'')+'</div>'
+      +'<div style="font-size:26px;font-weight:700;color:'+(isWorst?'#ef5350':'var(--text)')+';">'+phaseTotals[ph]+'</div>'
+      +'<div style="font-size:10px;color:var(--text3);margin-top:2px;">'+phaseErrors[ph].blunder+'B / '+phaseErrors[ph].mistake+'M / '+phaseErrors[ph].inaccuracy+'I</div></div>';
   });
+  html+='</div></div>';
 
-  html += '</div></div>';
-
-  if (openingInsights.length > 0) {
-    html += '<div style="background:var(--bg2);border:1px solid var(--border);border-radius:8px;padding:16px;margin-bottom:16px;">'
-      + '<div style="font-size:9px;letter-spacing:2px;text-transform:uppercase;color:var(--text3);font-weight:700;margin-bottom:12px;">Openings To Review</div>'
-      + '<table style="width:100%;border-collapse:collapse;font-size:12px;">'
-      + '<thead><tr style="color:var(--text3);">'
-      + '<th style="padding:6px 8px;text-align:left;border-bottom:1px solid var(--border);">Opening</th>'
-      + '<th style="padding:6px 8px;text-align:center;border-bottom:1px solid var(--border);">G</th>'
-      + '<th style="padding:6px 8px;text-align:center;border-bottom:1px solid var(--border);">Win%</th>'
-      + '<th style="padding:6px 8px;text-align:center;border-bottom:1px solid var(--border);">Blunders</th>'
-      + '<th style="padding:6px 8px;text-align:center;border-bottom:1px solid var(--border);">Avg CPL</th>'
-      + '</tr></thead><tbody>';
+  if(openingInsights.length>0){
+    html+='<div style="background:var(--bg2);border:1px solid var(--border);border-radius:8px;padding:16px;margin-bottom:16px;">'
+      +'<div style="font-size:9px;letter-spacing:2px;text-transform:uppercase;color:var(--text3);font-weight:700;margin-bottom:12px;">Openings To Review</div>'
+      +'<table style="width:100%;border-collapse:collapse;font-size:12px;">'
+      +'<thead><tr style="color:var(--text3);"><th style="padding:6px 8px;text-align:left;border-bottom:1px solid var(--border);">Opening</th><th style="padding:6px 8px;text-align:center;border-bottom:1px solid var(--border);">G</th><th style="padding:6px 8px;text-align:center;border-bottom:1px solid var(--border);">Win%</th><th style="padding:6px 8px;text-align:center;border-bottom:1px solid var(--border);">Blunders</th><th style="padding:6px 8px;text-align:center;border-bottom:1px solid var(--border);">Avg CPL</th></tr></thead><tbody>';
     openingInsights.forEach(function(o){
-      html += '<tr style="border-bottom:1px solid var(--border);">'
-        + '<td style="padding:8px;color:var(--text);">' + o.name + '</td>'
-        + '<td style="padding:8px;text-align:center;color:var(--text2);">' + o.total + '</td>'
-        + '<td style="padding:8px;text-align:center;font-weight:700;color:' + (o.winRate >= 0.5 ? '#66bb6a' : o.winRate >= 0.35 ? '#ffa726' : '#ef5350') + ';">' + (o.winRate * 100).toFixed(0) + '%</td>'
-        + '<td style="padding:8px;text-align:center;color:#ef5350;font-weight:700;">' + o.blunders + '</td>'
-        + '<td style="padding:8px;text-align:center;color:var(--text2);">' + o.avgLoss.toFixed(0) + '</td>'
-        + '</tr>';
+      html+='<tr style="border-bottom:1px solid var(--border);"><td style="padding:8px;color:var(--text);">'+o.name+'</td><td style="padding:8px;text-align:center;color:var(--text2);">'+o.total+'</td><td style="padding:8px;text-align:center;font-weight:700;color:'+(o.winRate>=0.5?'#66bb6a':o.winRate>=0.35?'#ffa726':'#ef5350')+';">'+(o.winRate*100).toFixed(0)+'%</td><td style="padding:8px;text-align:center;color:#ef5350;font-weight:700;">'+o.blunders+'</td><td style="padding:8px;text-align:center;color:var(--text2);">'+o.avgLoss.toFixed(0)+'</td></tr>';
     });
-    html += '</tbody></table></div>';
+    html+='</tbody></table></div>';
   }
 
-  if (topReviewGames.length > 0) {
-    html += '<div style="background:var(--bg2);border:1px solid var(--border);border-radius:8px;padding:16px;margin-bottom:16px;">'
-      + '<div style="font-size:9px;letter-spacing:2px;text-transform:uppercase;color:var(--text3);font-weight:700;margin-bottom:12px;">Games Needing Review</div>'
-      + '<table style="width:100%;border-collapse:collapse;font-size:12px;">'
-      + '<thead><tr style="color:var(--text3);">'
-      + '<th style="padding:6px 8px;text-align:left;border-bottom:1px solid var(--border);">Opponent</th>'
-      + '<th style="padding:6px 8px;text-align:left;border-bottom:1px solid var(--border);">Opening</th>'
-      + '<th style="padding:6px 8px;text-align:center;border-bottom:1px solid var(--border);">Acc</th>'
-      + '<th style="padding:6px 8px;text-align:center;border-bottom:1px solid var(--border);">B / M / I</th>'
-      + '<th style="padding:6px 8px;text-align:left;border-bottom:1px solid var(--border);">Worst Move</th>'
-      + '</tr></thead><tbody>';
+  if(topReviewGames.length>0){
+    html+='<div style="background:var(--bg2);border:1px solid var(--border);border-radius:8px;padding:16px;margin-bottom:16px;">'
+      +'<div style="font-size:9px;letter-spacing:2px;text-transform:uppercase;color:var(--text3);font-weight:700;margin-bottom:12px;">Games Needing Review</div>'
+      +'<table style="width:100%;border-collapse:collapse;font-size:12px;">'
+      +'<thead><tr style="color:var(--text3);"><th style="padding:6px 8px;text-align:left;border-bottom:1px solid var(--border);">Opponent</th><th style="padding:6px 8px;text-align:left;border-bottom:1px solid var(--border);">Opening</th><th style="padding:6px 8px;text-align:center;border-bottom:1px solid var(--border);">Acc</th><th style="padding:6px 8px;text-align:center;border-bottom:1px solid var(--border);">B / M / I</th><th style="padding:6px 8px;text-align:left;border-bottom:1px solid var(--border);">Worst Move</th></tr></thead><tbody>';
     topReviewGames.forEach(function(g){
-      html += '<tr style="border-bottom:1px solid var(--border);">'
-        + '<td style="padding:8px;color:var(--text);">' + g.opponent + ' <span style="color:var(--text3);font-size:10px">(' + g.result.toUpperCase() + ')</span></td>'
-        + '<td style="padding:8px;color:var(--text2);font-size:11px;">' + g.opening + '</td>'
-        + '<td style="padding:8px;text-align:center;font-weight:700;color:' + (g.accuracy >= 80 ? '#66bb6a' : g.accuracy >= 70 ? '#ffa726' : '#ef5350') + ';">' + g.accuracy.toFixed(0) + '%</td>'
-        + '<td style="padding:8px;text-align:center;color:var(--text2);">' + g.blunders + ' / ' + g.mistakes + ' / ' + g.inaccuracies + '</td>'
-        + '<td style="padding:8px;color:var(--text2);">' + (g.worstMove ? (g.worstMove.moveNumber + '. ' + g.worstMove.san + ' (' + g.worstMove.phase + ', ' + g.worstMove.lossCp + ' cp)') : 'No major swing found') + '</td>'
-        + '</tr>';
+      html+='<tr style="border-bottom:1px solid var(--border);"><td style="padding:8px;color:var(--text);">'+g.opponent+' <span style="color:var(--text3);font-size:10px">('+g.result.toUpperCase()+')</span></td><td style="padding:8px;color:var(--text2);font-size:11px;">'+g.opening+'</td><td style="padding:8px;text-align:center;font-weight:700;color:'+(g.accuracy>=80?'#66bb6a':g.accuracy>=70?'#ffa726':'#ef5350')+';">'+g.accuracy.toFixed(0)+'%</td><td style="padding:8px;text-align:center;color:var(--text2);">'+g.blunders+' / '+g.mistakes+' / '+g.inaccuracies+'</td><td style="padding:8px;color:var(--text2);">'+(g.worstMove?(g.worstMove.moveNumber+'. '+g.worstMove.san+' ('+g.worstMove.phase+', '+g.worstMove.lossCp+' cp)'):'No major swing found')+'</td></tr>';
     });
-    html += '</tbody></table></div>';
+    html+='</tbody></table></div>';
   }
 
-  var tips = {
-    opening: 'Opening play is leaking the most value. Review your first 8-10 moves, keep one reliable setup as White and one response as Black, and do not grab side pawns before you finish development.',
-    middlegame: 'Most losses are happening after development. Before every move, scan checks, captures, and threats for both sides so you catch one-move tactics and hanging pieces.',
-    endgame: 'Endgames are costing the most. Focus on king activity, passed pawns, and basic rook endings so equal positions stop slipping away.'
+  var tips={
+    opening:'Opening play is leaking the most value. Review your first 8-10 moves, keep one reliable setup as White and one response as Black, and do not grab side pawns before you finish development.',
+    middlegame:'Most losses are happening after development. Before every move, scan checks, captures, and threats for both sides so you catch one-move tactics and hanging pieces.',
+    endgame:'Endgames are costing the most. Focus on king activity, passed pawns, and basic rook endings so equal positions stop slipping away.'
   };
 
-  html += '<div style="background:rgba(79,195,247,.06);border-left:3px solid #4fc3f7;border-radius:0 6px 6px 0;padding:14px 16px;">'
-    + '<div style="font-size:10px;letter-spacing:1px;text-transform:uppercase;color:#4fc3f7;font-weight:700;margin-bottom:6px;">Coach Summary</div>'
-    + '<div style="font-size:13px;color:var(--text2);line-height:1.7;">Your biggest problem area is <strong style="color:var(--text)">' + phaseName(worstPhase) + '</strong>. ' + tips[worstPhase] + ' Across the analysed sample, your average move lost <strong style="color:var(--text)">' + avgLossPerMove.toFixed(0) + ' centipawns</strong> and your estimated accuracy was <strong style="color:var(--text)">' + avgAccuracy.toFixed(1) + '%</strong>.</div>'
-    + '</div></div>';
+  html+='<div style="background:rgba(79,195,247,.06);border-left:3px solid #4fc3f7;border-radius:0 6px 6px 0;padding:14px 16px;">'
+    +'<div style="font-size:10px;letter-spacing:1px;text-transform:uppercase;color:#4fc3f7;font-weight:700;margin-bottom:6px;">Coach Summary</div>'
+    +'<div style="font-size:13px;color:var(--text2);line-height:1.7;">Your biggest problem area is <strong style="color:var(--text)">'+phaseName(worstPhase)+'</strong>. '+tips[worstPhase]+' Across the analysed sample, your average move lost <strong style="color:var(--text)">'+avgLossPerMove.toFixed(0)+' centipawns</strong> and your estimated accuracy was <strong style="color:var(--text)">'+avgAccuracy.toFixed(1)+'%</strong>.</div>'
+    +'</div></div>';
 
-  reportDiv.innerHTML = html;
+  reportDiv.innerHTML=html;
 }
 
 buildPickers();
