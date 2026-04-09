@@ -249,7 +249,7 @@ input[type=range]{width:100%;accent-color:var(--gold)}
   <div class="home-features">
     <div class="feat"><div class="feat-icon">🔍</div><div class="feat-title">Deep Game Analysis</div><div class="feat-desc">Fetch your last 100 Chess.com games. Full weakness report — worst openings, blunder phases, pattern detection.</div></div>
     <div class="feat"><div class="feat-icon">🧩</div><div class="feat-title">Custom Puzzles</div><div class="feat-desc">Puzzles built from your exact blunders. Train the specific mistakes you keep making.</div></div>
-    <div class="feat"><div class="feat-icon">🤖</div><div class="feat-title">AI Coach Chat</div><div class="feat-desc">Claude AI sees your board, move history, and engine eval at all times. Powered by streaming responses.</div></div>
+    <div class="feat"><div class="feat-icon">🤖</div><div class="feat-title">AI Coach Chat</div><div class="feat-desc">Your AI coach sees the board, move history, and engine eval at all times with streaming responses.</div></div>
     <div class="feat"><div class="feat-icon">⚡</div><div class="feat-title">Play vs Engine</div><div class="feat-desc">Stockfish from 400–2800 Elo. Adjustable depth, take backs, flip board.</div></div>
   </div>
   <div class="home-pricing">
@@ -350,7 +350,7 @@ input[type=range]{width:100%;accent-color:var(--gold)}
     <div class="panel-body" id="tab-coach" style="display:none;flex:1">
       <div class="chat-wrap" style="flex:1">
         <div class="chat-msgs" id="chat-msgs">
-          <div class="cmsg coach">♟ Welcome! I'm your Chess AI Coach powered by Claude. Make a move and ask me anything — I can see the board, move history, and engine evaluation at all times.</div>
+          <div class="cmsg coach">♟ Welcome! I'm your Chess AI Coach. Make a move and ask me anything — I can see the board, move history, and engine evaluation at all times.</div>
         </div>
         <div class="chat-typing" id="chat-typing"><div class="typing-dots"><span></span><span></span><span></span></div></div>
         <div class="chat-in">
@@ -681,7 +681,7 @@ function askSF(){
   if(!sfW)return;cands=[];sfW.postMessage('stop');sfW.postMessage('position fen '+game.fen());sfW.postMessage('go depth '+depth);
 }
 
-// ── AI COACH CHAT (Real Claude API via Railway backend) ───────────────────
+// ── AI COACH CHAT (Railway backend) ───────────────────
 function addCoachMsg(text){
   const el=document.getElementById('chat-msgs');if(!el)return;
   const d=document.createElement('div');d.className='cmsg coach';d.textContent=text;
@@ -718,7 +718,7 @@ function sendChat(){
   cd.textContent='';
   el.appendChild(cd);
 
-  // Call the Railway backend which proxies to Claude
+  // Call the Railway backend which proxies to the chat provider
   fetch('https://chess-coach-production-86a2.up.railway.app/api/chat',{
     method:'POST',
     headers:{'Content-Type':'application/json'},
@@ -730,7 +730,21 @@ function sendChat(){
     })
   })
   .then(function(res){
-    if(!res.ok)throw new Error('Server returned '+res.status);
+    if(!res.ok){
+      return res.text().then(function(text){
+        var msg='Server returned '+res.status;
+        if(text){
+          try{
+            var parsed=JSON.parse(text);
+            if(parsed&&parsed.error)msg=parsed.error;
+            else msg+=': '+text;
+          }catch(_){
+            msg+=': '+text;
+          }
+        }
+        throw new Error(msg);
+      });
+    }
     if(typing)typing.style.display='none';
 
     // Stream the response word by word
@@ -743,7 +757,7 @@ function sendChat(){
         if(result.done){
           if(typing)typing.style.display='none';
           if(!cd.textContent.trim()){
-            cd.textContent='Sorry, I could not get a response. Check that ANTHROPIC_API_KEY is set in Railway.';
+            cd.textContent='Sorry, I could not get a response. Check your Railway logs and Groq configuration.';
           }
           el.scrollTop=el.scrollHeight;
           return;
@@ -779,7 +793,7 @@ function sendChat(){
   })
   .catch(function(err){
     if(typing)typing.style.display='none';
-    cd.textContent='Could not reach the coach server. Make sure your Railway backend is running.';
+    cd.textContent='Coach server error: '+err.message;
     el.scrollTop=el.scrollHeight;
   });
 }
@@ -878,7 +892,7 @@ async function analyseGamesEnhanced(){
     for(var gi=0;gi<analysisGames.length;gi++){
       var gdata=analysisGames[gi];var pgn=gdata.pgn;if(!pgn)continue;
       reportDiv.innerHTML='<p style="color:#aaa;"><span class="spin"></span>Analysing game '+(gi+1)+' of '+analysisGames.length+'...</p>';
-      var wUser=gdata.white?(gdata.white.username||')':'';
+      var wUser=gdata.white?(gdata.white.username||''):'';
       var playerColor=wUser.toLowerCase()===username.toLowerCase()?'white':'black';
       var opponent=playerColor==='white'?(gdata.black?gdata.black.username:'Unknown'):(gdata.white?gdata.white.username:'Unknown');
       var result='draw';

@@ -1,19 +1,34 @@
 const express = require('express');
 const cors = require('cors');
-const fetch = require('node-fetch');
+require('dotenv').config();
 
 const app = express();
 const PORT = process.env.PORT || 3000;
 
+const DEFAULT_GROQ_MODELS = [
+  'llama-3.3-70b-versatile',
+  'llama3-70b-8192',
+  'mixtral-8x7b-32768'
+];
+
 app.use(cors());
 app.use(express.json());
+
+app.get('/api/debug-env', (req, res) => {
+  res.json({
+    provider: 'groq',
+    expectedKey: 'GROQ_API_KEY',
+    hasGroqKey: Boolean(process.env.GROQ_API_KEY),
+    hasAnthropicKey: Boolean(process.env.ANTHROPIC_API_KEY),
+    configuredModel: process.env.GROQ_MODEL || null
+  });
+});
 
 // ── GET CHESS.COM GAMES ───────────────────────────────────────────────────
 app.get('/api/games/:username', async (req, res) => {
   const { username } = req.params;
 
   try {
-    // Get list of monthly archives
     const archivesRes = await fetch(
       `https://api.chess.com/pub/player/${username}/games/archives`,
       { headers: { 'User-Agent': 'ChessCoachApp/1.0' } }
@@ -30,7 +45,6 @@ app.get('/api/games/:username', async (req, res) => {
       return res.json([]);
     }
 
-    // Fetch the last 2 months of games
     const recentArchives = archives.slice(-2).reverse();
     let allGames = [];
 
@@ -49,7 +63,6 @@ app.get('/api/games/:username', async (req, res) => {
       }
     }
 
-    // Return last 100 games
     const result = allGames.slice(-100);
     res.json(result);
 
@@ -74,9 +87,9 @@ app.post('/api/chat', async (req, res) => {
     return res.status(400).json({ error: 'No message provided.' });
   }
 
-  const ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY;
-  if (!ANTHROPIC_API_KEY) {
-    return res.status(500).json({ error: 'ANTHROPIC_API_KEY is not set on the server. Please add it in Railway environment variables.' });
+  const GROQ_API_KEY = process.env.GROQ_API_KEY;
+  if (!GROQ_API_KEY) {
+    return res.status(500).json({ error: 'GROQ_API_KEY is not set on the server. Please add it in Railway environment variables.' });
   }
 
   const systemPrompt = `You are an expert chess coach. You can see the player's current game state at all times.
@@ -88,27 +101,65 @@ Engine evaluation: ${evalScore !== undefined && evalScore !== null ? evalScore :
 Give concise, practical chess advice. Reference specific pieces and squares when helpful. Be encouraging but honest. Keep responses under 120 words unless the player explicitly asks for a detailed explanation.`;
 
   try {
-    const anthropicRes = await fetch('https://api.anthropic.com/v1/messages', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'x-api-key': ANTHROPIC_API_KEY,
-        'anthropic-version': '2023-06-01',
-        'anthropic-beta': 'messages-2023-12-15'
-      },
-      body: JSON.stringify({
-        model: 'claude-sonnet-4-20250514',
-        max_tokens: 300,
-        stream: true,
-        system: systemPrompt,
-        messages: [{ role: 'user', content: message }]
-      })
-    });
+    const configuredModel = process.env.GROQ_MODEL;
+    const modelCandidates = [
+      ...(configuredModel ? [configuredModel] : []),
+      ...DEFAULT_GROQ_MODELS
+    ].filter((model, index, list) => model && list.indexOf(model) === index);
 
-    if (!anthropicRes.ok) {
-      const errText = await anthropicRes.text();
-      console.error('Claude API error:', errText);
-      return res.status(502).json({ error: 'Claude API error: ' + errText });
+    let groqRes = null;
+    let lastGroqError = '';
+    let activeModel = modelCandidates[0];
+
+    for (const model of modelCandidates) {
+      activeModel = model;
+      groqRes = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${GROQ_API_KEY}`
+        },
+        body: JSON.stringify({
+          model,
+          max_tokens: 300,
+          stream: true,
+          messages: [
+            { role: 'system', content: systemPrompt },
+            { role: 'user', content: message }
+          ]
+        })
+      });
+
+      if (groqRes.ok) {
+        break;
+      }
+
+      const errText = await groqRes.text();
+      lastGroqError = errText;
+      console.error(`Groq API error for model ${model}:`, errText);
+
+      const lowerError = errText.toLowerCase();
+      const shouldTryNextModel =
+        groqRes.status === 400 &&
+        (lowerError.includes('model') || lowerError.includes('decommissioned') || lowerError.includes('not found'));
+
+      if (!shouldTryNextModel) {
+        return res.status(502).json({
+          error: `Groq request failed (${groqRes.status}). ${errText || 'No error details returned.'}`
+        });
+      }
+    }
+
+    if (!groqRes || !groqRes.ok) {
+      return res.status(502).json({
+        error: `Groq rejected all configured models. Last attempted model: ${activeModel}. ${lastGroqError || 'No error details returned.'}`
+      });
+    }
+
+    if (!groqRes.body || typeof groqRes.body.getReader !== 'function') {
+      return res.status(502).json({
+        error: 'Groq returned a response body that cannot be streamed by this server runtime.'
+      });
     }
 
     // Set headers for streaming
@@ -116,8 +167,9 @@ Give concise, practical chess advice. Reference specific pieces and squares when
     res.setHeader('Cache-Control', 'no-cache');
     res.setHeader('Connection', 'keep-alive');
     res.setHeader('Access-Control-Allow-Origin', '*');
+    res.setHeader('X-Coach-Model', activeModel);
 
-    const reader = anthropicRes.body.getReader();
+    const reader = groqRes.body.getReader();
     const decoder = new TextDecoder();
 
     while (true) {
@@ -130,20 +182,16 @@ Give concise, practical chess advice. Reference specific pieces and squares when
       for (const line of lines) {
         if (!line.startsWith('data: ')) continue;
         const data = line.slice(6).trim();
-        if (data === '[DONE]') continue;
+        if (data === '[DONE]') {
+          res.write('data: [DONE]\n\n');
+          continue;
+        }
 
         try {
           const parsed = JSON.parse(data);
-          if (
-            parsed.type === 'content_block_delta' &&
-            parsed.delta &&
-            parsed.delta.type === 'text_delta' &&
-            parsed.delta.text
-          ) {
-            res.write('data: ' + JSON.stringify({ text: parsed.delta.text }) + '\n\n');
-          }
-          if (parsed.type === 'message_stop') {
-            res.write('data: [DONE]\n\n');
+          const text = parsed.choices?.[0]?.delta?.content;
+          if (text) {
+            res.write('data: ' + JSON.stringify({ text }) + '\n\n');
           }
         } catch (_) {
           // skip malformed lines
