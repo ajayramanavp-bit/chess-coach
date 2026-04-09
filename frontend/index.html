@@ -709,6 +709,17 @@ function sendChat(){
   // Gather board context to send to the coach
   const currentFen=game.fen();
   const moveHistory=game.history().slice(-10);
+  const legalMoves=game.moves({verbose:true}).map(function(move){
+    return {
+      san:move.san,
+      from:move.from,
+      to:move.to,
+      piece:move.piece,
+      captured:move.captured||null,
+      promotion:move.promotion||null
+    };
+  });
+  const turnColor=game.turn()==='w'?'white':'black';
   const evalEl=document.getElementById('eval-text');
   const evalScore=evalEl?evalEl.textContent.replace('Engine eval','').trim():'unknown';
 
@@ -726,6 +737,8 @@ function sendChat(){
       message:txt,
       fen:currentFen,
       history:moveHistory,
+      legalMoves:legalMoves,
+      turn:turnColor,
       eval:evalScore
     })
   })

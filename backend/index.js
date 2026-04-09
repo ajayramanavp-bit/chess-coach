@@ -81,7 +81,7 @@ app.options('/api/chat', (req, res) => {
 });
 
 app.post('/api/chat', async (req, res) => {
-  const { message, fen, history, eval: evalScore } = req.body;
+  const { message, fen, history, legalMoves, turn, eval: evalScore } = req.body;
 
   if (!message) {
     return res.status(400).json({ error: 'No message provided.' });
@@ -92,13 +92,27 @@ app.post('/api/chat', async (req, res) => {
     return res.status(500).json({ error: 'GROQ_API_KEY is not set on the server. Please add it in Railway environment variables.' });
   }
 
-  const systemPrompt = `You are an expert chess coach. You can see the player's current game state at all times.
+  const legalMoveList = Array.isArray(legalMoves) ? legalMoves.slice(0, 40) : [];
+  const legalMoveSummary = legalMoveList.length
+    ? legalMoveList.map((move) => `${move.san} (${move.from}-${move.to})`).join(', ')
+    : 'not provided';
+
+  const systemPrompt = `You are an expert chess coach helping with a live game.
+
+You must stay grounded in the provided position and legal move list.
+If a move is not in the legal move list, do not recommend it.
+Do not invent piece locations, captures, or recaptures.
+If the user's wording does not match the board, politely correct it using the current position.
+When suggesting a move, prefer SAN from the legal move list and briefly explain why.
+If there is uncertainty, say so instead of guessing.
 
 Current board position (FEN): ${fen || 'starting position'}
+Side to move: ${turn || 'unknown'}
 Recent moves played: ${history && history.length ? history.join(', ') : 'none yet'}
+Legal moves from this position: ${legalMoveSummary}
 Engine evaluation: ${evalScore !== undefined && evalScore !== null ? evalScore : 'not available'}
 
-Give concise, practical chess advice. Reference specific pieces and squares when helpful. Be encouraging but honest. Keep responses under 120 words unless the player explicitly asks for a detailed explanation.`;
+Keep responses under 90 words unless the player asks for more detail.`;
 
   try {
     const configuredModel = process.env.GROQ_MODEL;
